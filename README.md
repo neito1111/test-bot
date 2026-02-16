@@ -37,3 +37,4 @@ python -m bot
 Telegram не всегда даёт номер телефона из пересланного сообщения. Бот сохраняет максимум доступного: `id`, `username`, `first_name`, `last_name`, текст и дату форварда.
 
 # botPanel
+# botPanel
