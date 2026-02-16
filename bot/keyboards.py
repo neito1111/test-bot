@@ -1032,6 +1032,7 @@ def kb_bank_edit(bank_id: int) -> InlineKeyboardMarkup:
 def kb_bank_edit_for_source(bank_id: int, *, source: str) -> InlineKeyboardMarkup:
     src = (source or "TG").upper()
     b = InlineKeyboardBuilder()
+    b.button(text="Название банка", callback_data=BankEditCb(action="rename", bank_id=bank_id).pack())
     if src == "FB":
         b.button(text="Текст условий (FB)", callback_data=BankEditCb(action="instructions_fb", bank_id=bank_id).pack())
         b.button(text="Кол-во скринов (FB)", callback_data=BankEditCb(action="required_fb", bank_id=bank_id).pack())

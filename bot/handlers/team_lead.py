@@ -850,8 +850,8 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
 
     src = await _get_team_lead_source(session, cq.from_user.id)
     allowed = {
-        TeamLeadSource.TG: {"instructions_tg", "required_tg", "back"},
-        TeamLeadSource.FB: {"instructions_fb", "required_fb", "back"},
+        TeamLeadSource.TG: {"rename", "instructions_tg", "required_tg", "back"},
+        TeamLeadSource.FB: {"rename", "instructions_fb", "required_fb", "back"},
     }
     if callback_data.action not in allowed.get(src, set()):
         await cq.answer("Нет прав", show_alert=True)
@@ -876,6 +876,16 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
     await state.clear()
     await state.update_data(bank_id=bank.id)
 
+    if callback_data.action == "rename":
+        await state.set_state(TeamLeadStates.bank_rename_name)
+        await state.update_data(return_to="edit_menu")
+        if cq.message:
+            await cq.message.answer(
+                f"Введите новое название банка (сейчас: <b>{bank.name}</b>):",
+                reply_markup=kb_back(),
+            )
+        return
+
     if callback_data.action in {"instructions_tg", "instructions_fb"}:
         await state.set_state(TeamLeadStates.bank_instructions)
         await state.update_data(return_to="edit_menu", edit_field=callback_data.action)
@@ -895,6 +905,67 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
 
     await cq.answer("Неизвестное действие", show_alert=True)
     return
+
+
+@router.message(TeamLeadStates.bank_rename_name, F.text & (F.text != "Назад"))
+async def bank_rename_name(message: Message, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not message.from_user:
+        return
+    if not await is_team_lead(session, message.from_user.id):
+        return
+
+    data = await state.get_data()
+    bank_id_raw = data.get("bank_id")
+    if not bank_id_raw:
+        await state.clear()
+        await message.answer("⚠️ Сессия сбилась. Зайдите в 'Условия для сдачи' и выберите банк заново.")
+        return
+
+    name = (message.text or "").strip()
+    if not name or len(name) > 64:
+        await message.answer("Введите корректное название (до 64 символов):")
+        return
+
+    bank = await get_bank(session, int(bank_id_raw))
+    if not bank:
+        await state.clear()
+        await message.answer("Банк не найден")
+        return
+
+    existing = await get_bank_by_name(session, name)
+    if existing and int(existing.id) != int(bank.id):
+        await message.answer("⚠️ Банк с таким названием уже существует. Введите другое название:")
+        return
+
+    await update_bank(session, int(bank.id), name=name)
+    await state.clear()
+    await message.answer("✅ Название банка обновлено.", reply_markup=kb_team_lead_inline_main())
+
+
+@router.message(TeamLeadStates.bank_rename_name, F.text == "Назад")
+async def bank_rename_back(message: Message, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not message.from_user:
+        return
+    if not await is_team_lead(session, message.from_user.id):
+        return
+
+    data = await state.get_data()
+    bank_id = data.get("bank_id")
+    await state.clear()
+
+    if bank_id:
+        bank = await get_bank(session, int(bank_id))
+        if bank:
+            src = await _get_team_lead_source(session, message.from_user.id)
+            await message.answer(
+                f"Редактирование <b>{bank.name}</b>:",
+                reply_markup=kb_bank_edit_for_source(bank.id, source=str(src).split(".")[-1]),
+            )
+            return
+
+    banks = await list_banks(session)
+    items = [(b.id, b.name) for b in banks]
+    await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
 
 @router.message(TeamLeadStates.bank_instructions, F.text & (F.text != "Назад"))

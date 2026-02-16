@@ -374,6 +374,7 @@ async def update_bank(
     session: AsyncSession,
     bank_id: int,
     *,
+    name: str | None | Any = ...,
     instructions: str | None | Any = ...,
     instructions_tg: str | None | Any = ...,
     instructions_fb: str | None | Any = ...,
@@ -385,6 +386,17 @@ async def update_bank(
     bank = await get_bank(session, bank_id)
     if not bank:
         return
+    if name is not ...:
+        old_name = str(bank.name)
+        new_name = str(name or "").strip()
+        if new_name and new_name != old_name:
+            bank.name = new_name
+            res_forms = await session.execute(select(Form).where(Form.bank_name == old_name))
+            for f in res_forms.scalars().all():
+                f.bank_name = new_name
+            res_dups = await session.execute(select(DuplicateReport).where(DuplicateReport.bank_name == old_name))
+            for r in res_dups.scalars().all():
+                r.bank_name = new_name
     if instructions is not ...:
         bank.instructions = instructions
     if instructions_tg is not ...:

@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from bot.keyboards import kb_dm_my_forms_list
-from bot.models import Form, FormStatus, User, UserRole
-from bot.repositories import list_user_forms_in_range, phone_bank_duplicate_exists
+from bot.models import DuplicateReport, Form, FormStatus, User, UserRole
+from bot.repositories import list_user_forms_in_range, phone_bank_duplicate_exists, update_bank
 from bot.utils import format_form_status, is_valid_phone, normalize_phone
 
 
@@ -73,3 +73,24 @@ def test_kb_dm_my_forms_list_builds_buttons() -> None:
     kb = kb_dm_my_forms_list(forms)
     assert kb.inline_keyboard[0][0].text.startswith("#1")
     assert kb.inline_keyboard[1][0].text.startswith("#2")
+
+
+@pytest.mark.asyncio
+async def test_update_bank_renames_related_records(session) -> None:
+    u = User(tg_id=301, role=UserRole.DROP_MANAGER)
+    session.add(u)
+    await session.flush()
+
+    from bot.repositories import create_bank
+    bank = await create_bank(session, "Моно")
+    f = Form(manager_id=u.id, status=FormStatus.PENDING, phone="+380 991234567", bank_name="Моно")
+    d = DuplicateReport(manager_id=u.id, manager_source="TG", phone="+380 991234567", bank_name="Моно")
+    session.add_all([f, d])
+    await session.flush()
+
+    await update_bank(session, bank.id, name="Mono")
+    await session.flush()
+
+    assert bank.name == "Mono"
+    assert f.bank_name == "Mono"
+    assert d.bank_name == "Mono"

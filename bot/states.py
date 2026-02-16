@@ -22,6 +22,7 @@ class TeamLeadStates(StatesGroup):
     reject_comment = State()
     duplicates_filter_range = State()
     bank_custom_name = State()
+    bank_rename_name = State()
     bank_instructions = State()
     bank_required_screens = State()
     bank_templates = State()
