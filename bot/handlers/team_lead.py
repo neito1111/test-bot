@@ -571,6 +571,11 @@ async def team_lead_menu(message: Message, session: AsyncSession) -> None:
 
 @router.callback_query(TeamLeadMenuCb.filter(F.action == "home"))
 async def tl_home(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    if not await is_team_lead(session, cq.from_user.id):
+        await cq.answer("Нет прав", show_alert=True)
+        return
     await cq.answer()
     if cq.message:
         live_cnt = await count_pending_forms(session)
@@ -621,7 +626,12 @@ async def tl_duplicate_notice_open(cq: CallbackQuery, session: AsyncSession, sta
 
 
 @router.callback_query(F.data == "tl:dup_filter")
-async def tl_dup_filter_menu_cb(cq: CallbackQuery, state: FSMContext) -> None:
+async def tl_dup_filter_menu_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.from_user:
+        return
+    if not await is_team_lead(session, cq.from_user.id):
+        await cq.answer("Нет прав", show_alert=True)
+        return
     await cq.answer()
     data = await state.get_data()
     current = (data.get("dup_period") or "today")
@@ -631,6 +641,11 @@ async def tl_dup_filter_menu_cb(cq: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("tl:dup_filter_set:"))
 async def tl_dup_filter_set_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.from_user:
+        return
+    if not await is_team_lead(session, cq.from_user.id):
+        await cq.answer("Нет прав", show_alert=True)
+        return
     await cq.answer()
     period = (cq.data or "").split(":")[-1]
     await state.update_data(dup_period=period, dup_created_from=None, dup_created_to=None)
@@ -638,7 +653,12 @@ async def tl_dup_filter_set_cb(cq: CallbackQuery, session: AsyncSession, state: 
 
 
 @router.callback_query(F.data == "tl:dup_filter_custom")
-async def tl_dup_filter_custom_cb(cq: CallbackQuery, state: FSMContext) -> None:
+async def tl_dup_filter_custom_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.from_user:
+        return
+    if not await is_team_lead(session, cq.from_user.id):
+        await cq.answer("Нет прав", show_alert=True)
+        return
     await cq.answer()
     await state.set_state(TeamLeadStates.duplicates_filter_range)
     if cq.message:
