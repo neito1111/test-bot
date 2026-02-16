@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InputMediaDocument, InputMediaPhoto, InputMediaVideo, Message, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime, timedelta
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.callbacks import BankCb, BankEditCb, FormReviewCb, TeamLeadMenuCb
@@ -26,7 +27,7 @@ from bot.keyboards import (
     kb_tl_reject_back_inline,
     kb_tl_duplicate_notice,
 )
-from bot.models import FormStatus, TeamLeadSource, UserRole
+from bot.models import FormStatus, Shift, TeamLeadSource, User, UserRole
 from bot.repositories import (
     create_bank,
     get_forward_group_by_id,
@@ -62,6 +63,23 @@ router = Router(name="team_lead")
 # Apply group message filter to all handlers in this router
 router.message.filter(GroupMessageFilter())
 log = logging.getLogger(__name__)
+
+
+async def _notify_active_dms_banks_updated(bot: any, session: AsyncSession) -> None:
+    try:
+        res = await session.execute(
+            select(User.tg_id)
+            .join(Shift, Shift.manager_id == User.id)
+            .where(and_(User.role == UserRole.DROP_MANAGER, Shift.ended_at.is_(None)))
+        )
+        tg_ids = sorted({int(r[0]) for r in res.all() if r and r[0]})
+        for tg_id in tg_ids:
+            try:
+                await bot.send_message(tg_id, "🔄 Обновлено")
+            except Exception:
+                continue
+    except Exception:
+        return
 
 
 def _period_to_range(period: str | None) -> tuple[datetime | None, datetime | None]:
@@ -881,6 +899,7 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
             await cq.answer("Банк не найден", show_alert=True)
             return
         await cq.answer("Банк удалён")
+        await _notify_active_dms_banks_updated(cq.bot, session)
         banks = await list_banks(session)
         items = [(b.id, b.name) for b in banks]
         if cq.message:
@@ -953,6 +972,7 @@ async def bank_rename_name(message: Message, session: AsyncSession, state: FSMCo
 
     await update_bank(session, int(bank.id), name=name)
     await state.clear()
+    await _notify_active_dms_banks_updated(message.bot, session)
     await message.answer("✅ Название банка обновлено.", reply_markup=kb_team_lead_inline_main())
 
 
@@ -1016,6 +1036,7 @@ async def bank_set_instructions(message: Message, session: AsyncSession, state: 
         else:
             await update_bank(session, bank_id, instructions_tg=txt)
     await state.clear()
+    await _notify_active_dms_banks_updated(message.bot, session)
     await message.answer("✅ Условия обновлены.", reply_markup=kb_team_lead_inline_main())
 
 
@@ -1104,6 +1125,7 @@ async def bank_set_required(message: Message, session: AsyncSession, state: FSMC
         else:
             await update_bank(session, bank_id, required_screens_tg=val)
     await state.clear()
+    await _notify_active_dms_banks_updated(message.bot, session)
     await message.answer("✅ Кол-во скринов обновлено.", reply_markup=kb_team_lead_inline_main())
 
 
