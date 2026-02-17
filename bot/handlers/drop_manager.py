@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -631,12 +632,15 @@ def _kb_dm_rejected_detail_inline(form_id: int) -> InlineKeyboardBuilder:
     return b
 
 
-def _format_form_text(form: Form, manager_tag: str) -> str:
+def _format_form_text(form: Form, manager_tag: str, manager_source: str | None = None) -> str:
     traffic = "—"
     if form.traffic_type == "DIRECT":
         traffic = "Прямой"
     elif form.traffic_type == "REFERRAL":
         traffic = "Сарафан"
+
+    src_raw = (manager_source or getattr(getattr(form, "manager", None), "manager_source", None) or "—")
+    src = str(src_raw).upper()
 
     status_line = "❌ <b>Не подтверждена</b>"
     if form.status == FormStatus.APPROVED:
@@ -644,28 +648,34 @@ def _format_form_text(form: Form, manager_tag: str) -> str:
     if form.status == FormStatus.REJECTED:
         status_line = "❌ <b>Отклонено</b>"
 
-    ref_line = (
-        f"Привел: {format_user_payload(form.referral_user)}\n"
-        if form.traffic_type == "REFERRAL"
-        else ""
-    )
+    direct_user = html.escape(format_user_payload(form.direct_user))
+    referral_user = html.escape(format_user_payload(form.referral_user))
+    ref_line = f"Привел: {referral_user}\n" if form.traffic_type == "REFERRAL" else ""
 
-    tl_comment = (form.team_lead_comment or "").strip() or "Комментария нет"
+    tl_comment = html.escape((form.team_lead_comment or "").strip() or "Комментария нет")
     tl_comment_line = f"Комментарий TL: <b>{tl_comment}</b>\n" if form.status == FormStatus.REJECTED else ""
-    bank_tag = format_bank_hashtag(getattr(form, "bank_name", None))
+    bank_tag = html.escape(format_bank_hashtag(getattr(form, "bank_name", None)))
+    safe_manager_tag = html.escape(manager_tag or "—")
+    safe_phone = html.escape(form.phone or "—")
+    safe_password = html.escape(form.password or "—")
+    safe_comment = html.escape(form.comment or "—")
+    source_line = f"Источник: <b>{html.escape(src)}</b>\n"
+    traffic_line = "" if src == "TG" else f"Тип клиента: <b>{traffic}</b>\n"
+
     return (
         f"{status_line}\n\n"
         "📄 <b>Анкета</b>\n"
         f"ID: <code>{form.id}</code>\n"
-        f"Тег менеджера: <b>{manager_tag}</b>\n"
-        f"Тип клиента: <b>{traffic}</b>\n"
-        f"Клиент: {format_user_payload(form.direct_user)}\n"
+        f"{source_line}"
+        f"Тег менеджера: <b>{safe_manager_tag}</b>\n"
+        f"{traffic_line}"
+        f"Клиент: {direct_user}\n"
         f"{ref_line}"
         f"{tl_comment_line}"
-        f"Номер: <code>{form.phone or '—'}</code>\n"
+        f"Номер: <code>{safe_phone}</code>\n"
         f"Банк: <b>{bank_tag}</b>\n"
-        f"Пароль: <code>{form.password or '—'}</code>\n"
-        f"Комментарий: {form.comment or '—'}"
+        f"Пароль: <code>{safe_password}</code>\n"
+        f"Комментарий: {safe_comment}"
     )
 
 
@@ -1455,9 +1465,17 @@ async def dm_my_form_resume_cb(cq: CallbackQuery, session: AsyncSession, state: 
             await cq.bot.send_message(int(cq.from_user.id), text, reply_markup=reply_markup)
 
     traffic_type = (form.traffic_type or "").upper()
+    user_source = (getattr(user, "manager_source", None) or "").upper()
     if not traffic_type:
-        await state.set_state(DropManagerFormStates.traffic_type)
-        await _prompt("Выберите тип клиента:", kb_dm_traffic_type_inline())
+        if user_source == "TG":
+            await state.set_state(DropManagerFormStates.direct_forward)
+            await _prompt(
+                "Перешлите сообщение клиента (форвард):",
+                kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
+            )
+        else:
+            await state.set_state(DropManagerFormStates.traffic_type)
+            await _prompt("Выберите тип клиента:", kb_dm_traffic_type_inline())
         return
 
     if traffic_type == "DIRECT":
@@ -1746,12 +1764,13 @@ async def _finalize_shift_with_comment(
         tt = (traffic_type or "—").strip() or "—"
         bank_map.setdefault(bn, {})[tt] = int(cnt or 0)
 
-    uname = f"@{manager_username}" if manager_username else "—"
+    uname = html.escape(f"@{manager_username}" if manager_username else "—")
     dialogs = str(dialogs_count) if dialogs_count is not None else "—"
+    safe_manager_tag = html.escape(manager_tag or "—")
     lines: list[str] = [
         "🧾 <b>Отчёт по смене:</b>",
         f"Менеджер - <b>{uname}</b>",
-        f"Тег - <b>{manager_tag or '—'}</b>",
+        f"Тег - <b>{safe_manager_tag}</b>",
         f"Количество диалогов - <b>{dialogs}</b>",
         f"Время в работе - <b>{format_timedelta_seconds(duration)}</b>",
         "",
@@ -1786,7 +1805,7 @@ async def _finalize_shift_with_comment(
         f"Сарафан - <b>{total_referral}</b>",
     ])
 
-    com = (comment_of_day or "").strip() or "—"
+    com = html.escape((comment_of_day or "").strip() or "—")
     lines.extend(["", "<b>Комментарий дня:</b>", com])
     await session.commit()
     return "\n".join(lines)
@@ -1941,9 +1960,17 @@ async def create_form_entry(message: Message, session: AsyncSession, state: FSMC
         await message.answer("Сначала нажмите <b>Начать работу</b>.", reply_markup=kb_dm_main_inline(shift_active=False))
         return
     form = await create_form(session, user.id, shift.id)
-    await state.set_state(DropManagerFormStates.traffic_type)
     await state.update_data(form_id=form.id)
-    await message.answer("Выберите тип клиента:", reply_markup=kb_dm_traffic_type_inline())
+    if (getattr(user, "manager_source", None) or "").upper() == "TG":
+        form.traffic_type = None
+        await state.set_state(DropManagerFormStates.direct_forward)
+        await message.answer(
+            "Перешлите сообщение клиента (форвард):",
+            reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
+        )
+    else:
+        await state.set_state(DropManagerFormStates.traffic_type)
+        await message.answer("Выберите тип клиента:", reply_markup=kb_dm_traffic_type_inline())
 
 
 @router.callback_query(F.data == "dm:create_form")
@@ -1971,11 +1998,20 @@ async def dm_create_form_cb(cq: CallbackQuery, session: AsyncSession, state: FSM
         return
 
     form = await create_form(session, user.id, shift.id)
-    await state.set_state(DropManagerFormStates.traffic_type)
     await state.update_data(form_id=form.id)
     await cq.answer()
-    if cq.message:
-        await cq.message.edit_text("Выберите тип клиента:", reply_markup=kb_dm_traffic_type_inline())
+    if (getattr(user, "manager_source", None) or "").upper() == "TG":
+        form.traffic_type = None
+        await state.set_state(DropManagerFormStates.direct_forward)
+        if cq.message:
+            await cq.message.edit_text(
+                "Перешлите сообщение клиента (форвард):",
+                reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
+            )
+    else:
+        await state.set_state(DropManagerFormStates.traffic_type)
+        if cq.message:
+            await cq.message.edit_text("Выберите тип клиента:", reply_markup=kb_dm_traffic_type_inline())
 
 
 @router.callback_query(F.data.startswith("dm:traffic:"))
@@ -2020,8 +2056,17 @@ async def dm_traffic_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCont
 
 
 @router.callback_query(F.data == "dm:back_to_traffic")
-async def dm_back_to_traffic_cb(cq: CallbackQuery, state: FSMContext) -> None:
+async def dm_back_to_traffic_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await cq.answer()
+    user = await get_user_by_tg_id(session, int(cq.from_user.id)) if cq.from_user else None
+    if user and (getattr(user, "manager_source", None) or "").upper() == "TG":
+        await state.set_state(DropManagerFormStates.direct_forward)
+        if cq.message:
+            await cq.message.edit_text(
+                "Перешлите сообщение клиента (форвард):",
+                reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
+            )
+        return
     await state.set_state(DropManagerFormStates.traffic_type)
     if cq.message:
         await cq.message.edit_text("Выберите тип клиента:", reply_markup=kb_dm_traffic_type_inline())
