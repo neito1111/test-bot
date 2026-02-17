@@ -2142,6 +2142,43 @@ async def dev_select_user_cb(cq: CallbackQuery, session: AsyncSession, state: FS
         )
 
 
+@router.callback_query(F.data.startswith("dev:back_to_user:"))
+async def dev_back_to_user_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not cq.from_user:
+        return
+    if cq.from_user.id not in settings.developer_id_set:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+
+    tg_id = int(cq.data.split(":")[-1])
+    user = await get_user_by_tg_id(session, tg_id)
+    if not user:
+        await cq.answer("Пользователь не найден", show_alert=True)
+        return
+
+    await cq.answer()
+    await state.set_state(DeveloperStates.user_view)
+    await state.update_data(current_user_id=tg_id)
+
+    group_line = "—"
+    if getattr(user, "forward_group_id", None):
+        g = await get_forward_group_by_id(session, int(user.forward_group_id))
+        if g:
+            title = getattr(g, "title", None) or "—"
+            group_line = f"#{g.id} <code>{g.chat_id}</code> {title}"
+
+    details = _format_user_line(user, group_line)
+    if cq.message:
+        try:
+            await cq.message.edit_text(
+                f"👤 <b>ПОЛЬЗОВАТЕЛЬ #{tg_id}</b>\n\n{details}\n\nВыберите действие:",
+                reply_markup=kb_dev_user_actions(tg_id),
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
+
+
 @router.callback_query(F.data.startswith("dev:select_form:"))
 async def dev_select_form_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
     if not cq.from_user:
