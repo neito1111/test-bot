@@ -644,11 +644,36 @@ async def dev_edit_user_start(cq: CallbackQuery, session: AsyncSession, state: F
     if cq.from_user.id not in settings.developer_id_set:
         await cq.answer("Нет прав", show_alert=True)
         return
-    tg_id = int(cq.data.split(":")[-1])
+
+    parts = (cq.data or "").split(":")
+    # Supports:
+    # - dev:edit_user:<tg_id>
+    # - dev:edit_user:<tg_id>:role (legacy/back-compat)
+    if len(parts) < 3:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    try:
+        tg_id = int(parts[2])
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+
     user = await get_user_by_tg_id(session, tg_id)
     if not user:
         await cq.answer("Пользователь не найден", show_alert=True)
         return
+
+    # Back-compat: some keyboards use dev:edit_user:<tg_id>:role as back target
+    if len(parts) >= 4 and parts[3] == "role":
+        await cq.answer()
+        if cq.message:
+            try:
+                await cq.message.edit_text("Выберите роль:", reply_markup=kb_dev_pick_user_role(tg_id))
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e).lower():
+                    raise
+        return
+
     await cq.answer()
     await state.set_state(DeveloperStates.user_edit_field)
     await state.update_data(current_user_id=tg_id, edit_field=None)
