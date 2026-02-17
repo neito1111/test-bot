@@ -965,6 +965,20 @@ async def _send_photos_with_caption(message_or_bot: Any, chat_id: int, photos: l
         return
 
 
+async def _list_banks_for_dm_source(session: AsyncSession, manager_source: str | None) -> list:
+    src = (manager_source or "TG").upper()
+    banks = await list_banks(session)
+    if src == "FB":
+        return [
+            b for b in banks
+            if (getattr(b, "instructions_fb", None) or "").strip() or getattr(b, "required_screens_fb", None) is not None
+        ]
+    return [
+        b for b in banks
+        if (getattr(b, "instructions_tg", None) or "").strip() or getattr(b, "required_screens_tg", None) is not None
+    ]
+
+
 async def _get_bank_instructions_text(session: AsyncSession, *, user: User | None, bank_name: str) -> str | None:
     bank = await get_bank_by_name(session, bank_name)
     if not bank:
@@ -2537,7 +2551,7 @@ async def form_phone(message: Message, session: AsyncSession, state: FSMContext)
 
     await ensure_default_banks(session)
     try:
-        banks = await list_banks(session)
+        banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None))
         bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
     except Exception:
         bank_items = []
@@ -2572,6 +2586,16 @@ async def dm_bank_pick_id_cb(cq: CallbackQuery, session: AsyncSession, state: FS
     bank = await get_bank(session, bank_id)
     if not bank:
         await cq.answer("Некорректный банк", show_alert=True)
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    src = (getattr(user, "manager_source", None) or "TG").upper() if user else "TG"
+    allowed = (
+        ((getattr(bank, "instructions_fb", None) or "").strip() or getattr(bank, "required_screens_fb", None) is not None)
+        if src == "FB"
+        else ((getattr(bank, "instructions_tg", None) or "").strip() or getattr(bank, "required_screens_tg", None) is not None)
+    )
+    if not allowed:
+        await cq.answer("Банк недоступен для вашего источника", show_alert=True)
         return
     bank_name = str(bank.name)
 
@@ -2729,7 +2753,8 @@ async def dm_back_to_bank_select_cb(cq: CallbackQuery, session: AsyncSession, st
     await state.set_state(DropManagerFormStates.bank_select)
     if cq.message:
         try:
-            banks = await list_banks(session)
+            user = await get_user_by_tg_id(session, int(cq.from_user.id)) if cq.from_user else None
+            banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
             bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
         except Exception:
             bank_items = []
@@ -3248,7 +3273,8 @@ async def form_confirm_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
         await state.set_state(DropManagerFormStates.bank_select)
         if cq.message:
             try:
-                banks = await list_banks(session)
+                user = await get_user_by_tg_id(session, int(cq.from_user.id)) if cq.from_user else None
+                banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
                 bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
                 bank_items = []
@@ -3549,7 +3575,7 @@ async def dm_edit_resubmit_cb(cq: CallbackQuery, session: AsyncSession, state: F
         if cq.message:
             await _cleanup_edit_preview(bot=cq.bot, chat_id=int(cq.message.chat.id), state=state)
             try:
-                banks = await list_banks(session)
+                banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None))
                 bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
                 bank_items = []
@@ -3773,7 +3799,7 @@ async def dm_edit_field_cb(cq: CallbackQuery, session: AsyncSession, state: FSMC
         await state.set_state(DropManagerEditStates.bank_select)
         if cq.message:
             try:
-                banks = await list_banks(session)
+                banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None))
                 bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
                 bank_items = []
@@ -3931,12 +3957,13 @@ async def edit_choose_field(message: Message, session: AsyncSession, state: FSMC
         await state.clear()
         return
 
+    user = await get_user_by_tg_id(session, message.from_user.id) if message.from_user else None
     choice = message.text.strip()
     if choice == "Отправить заново":
         if not (getattr(form, "bank_name", None) or "").strip():
             await state.set_state(DropManagerEditStates.bank_select)
             try:
-                banks = await list_banks(session)
+                banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
                 bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
                 bank_items = []
@@ -4288,6 +4315,15 @@ async def dm_edit_bank_pick_id_cb(cq: CallbackQuery, session: AsyncSession, stat
     bank = await get_bank(session, bank_id)
     if not bank:
         await cq.answer("Некорректный банк", show_alert=True)
+        return
+    src = (getattr(user, "manager_source", None) or "TG").upper()
+    allowed = (
+        ((getattr(bank, "instructions_fb", None) or "").strip() or getattr(bank, "required_screens_fb", None) is not None)
+        if src == "FB"
+        else ((getattr(bank, "instructions_tg", None) or "").strip() or getattr(bank, "required_screens_tg", None) is not None)
+    )
+    if not allowed:
+        await cq.answer("Банк недоступен для вашего источника", show_alert=True)
         return
 
     form.bank_name = str(bank.name)
@@ -4660,7 +4696,8 @@ async def form_back_to_phone(message: Message, state: FSMContext) -> None:
 async def form_back_to_bank_select(message: Message, session: AsyncSession, state: FSMContext) -> None:
     await state.set_state(DropManagerFormStates.bank_select)
     try:
-        banks = await list_banks(session)
+        user = await get_user_by_tg_id(session, message.from_user.id) if message.from_user else None
+        banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
         bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
     except Exception:
         bank_items = []
@@ -4670,7 +4707,8 @@ async def form_back_to_bank_select(message: Message, session: AsyncSession, stat
 async def form_back_to_bank_select_from_password(message: Message, session: AsyncSession, state: FSMContext) -> None:
     await state.set_state(DropManagerFormStates.bank_select)
     try:
-        banks = await list_banks(session)
+        user = await get_user_by_tg_id(session, message.from_user.id) if message.from_user else None
+        banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
         bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
     except Exception:
         bank_items = []

@@ -345,6 +345,20 @@ async def _get_team_lead_source(session: AsyncSession, tg_id: int) -> TeamLeadSo
     return getattr(tl, "source", None) or TeamLeadSource.TG
 
 
+async def _list_banks_for_tl_source(session: AsyncSession, source: TeamLeadSource) -> list:
+    banks = await list_banks(session)
+    src = (str(source).split(".")[-1] if source else "TG").upper()
+    if src == "FB":
+        return [
+            b for b in banks
+            if (getattr(b, "instructions_fb", None) or "").strip() or getattr(b, "required_screens_fb", None) is not None
+        ]
+    return [
+        b for b in banks
+        if (getattr(b, "instructions_tg", None) or "").strip() or getattr(b, "required_screens_tg", None) is not None
+    ]
+
+
 def _format_bank_conditions_for_tl(bank, source: TeamLeadSource) -> str | None:
     if not bank:
         return None
@@ -564,7 +578,8 @@ async def team_lead_menu(message: Message, session: AsyncSession) -> None:
         return
 
     # banks
-    banks = await list_banks(session)
+    src = await _get_team_lead_source(session, message.from_user.id)
+    banks = await _list_banks_for_tl_source(session, src)
     items = [(b.id, b.name) for b in banks]
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
@@ -742,7 +757,8 @@ async def tl_banks(cq: CallbackQuery, session: AsyncSession, settings: Settings)
         await cq.answer()
     except Exception:
         pass
-    banks = await list_banks(session)
+    src = await _get_team_lead_source(session, cq.from_user.id)
+    banks = await _list_banks_for_tl_source(session, src)
     items = [(b.id, b.name) for b in banks]
     if cq.message:
         await cq.message.edit_text("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
@@ -759,15 +775,12 @@ async def bank_open(cq: CallbackQuery, callback_data: BankCb, session: AsyncSess
     if not bank:
         await cq.answer("Банк не найден", show_alert=True)
         return
-    text = _format_bank(
-        bank.name,
-        instructions=getattr(bank, "instructions", None),
-        required_screens=getattr(bank, "required_screens", None),
-        instructions_tg=getattr(bank, "instructions_tg", None),
-        instructions_fb=getattr(bank, "instructions_fb", None),
-        required_screens_tg=getattr(bank, "required_screens_tg", None),
-        required_screens_fb=getattr(bank, "required_screens_fb", None),
-    )
+    src = await _get_team_lead_source(session, cq.from_user.id)
+    cond = _format_bank_conditions_for_tl(bank, src)
+    if cond is None:
+        await cq.answer("Банк недоступен для вашего источника", show_alert=True)
+        return
+    text = f"🏦 <b>{bank.name}</b>\n\n{cond}"
     has_cond = _has_conditions(bank)
     await cq.answer()
     if cq.message:
@@ -856,7 +869,8 @@ async def bank_create_name(message: Message, session: AsyncSession, state: FSMCo
     if existing:
         await state.clear()
         await message.answer(f"⚠️ Банк <b>{existing.name}</b> уже существует.")
-        banks = await list_banks(session)
+        src = await _get_team_lead_source(session, message.from_user.id)
+        banks = await _list_banks_for_tl_source(session, src)
         items = [(b.id, b.name) for b in banks]
         await message.answer("Выберите банк:", reply_markup=kb_banks_list(items))
         return
@@ -899,15 +913,8 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
     await cq.answer()
     if callback_data.action == "back":
         if cq.message:
-            text = _format_bank(
-                bank.name,
-                instructions=getattr(bank, "instructions", None),
-                required_screens=getattr(bank, "required_screens", None),
-                instructions_tg=getattr(bank, "instructions_tg", None),
-                instructions_fb=getattr(bank, "instructions_fb", None),
-                required_screens_tg=getattr(bank, "required_screens_tg", None),
-                required_screens_fb=getattr(bank, "required_screens_fb", None),
-            )
+            cond = _format_bank_conditions_for_tl(bank, src)
+            text = f"🏦 <b>{bank.name}</b>\n\n{cond or '—'}"
             has_cond = _has_conditions(bank)
             await cq.message.edit_text(text, reply_markup=kb_bank_open(bank.id, has_conditions=has_cond))
         return
@@ -920,7 +927,7 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
             return
         await cq.answer("Банк удалён")
         await _notify_active_dms_banks_updated(cq.bot, session)
-        banks = await list_banks(session)
+        banks = await _list_banks_for_tl_source(session, src)
         items = [(b.id, b.name) for b in banks]
         if cq.message:
             await cq.message.answer("✅ Банк удалён.\n🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
@@ -1017,7 +1024,8 @@ async def bank_rename_back(message: Message, session: AsyncSession, state: FSMCo
             )
             return
 
-    banks = await list_banks(session)
+    src = await _get_team_lead_source(session, message.from_user.id)
+    banks = await _list_banks_for_tl_source(session, src)
     items = [(b.id, b.name) for b in banks]
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
@@ -1085,21 +1093,16 @@ async def bank_instructions_back(message: Message, session: AsyncSession, state:
     if return_to == "bank_open" and bank_id:
         bank = await get_bank(session, int(bank_id))
         if bank:
-            text = _format_bank(
-                bank.name,
-                instructions=getattr(bank, "instructions", None),
-                required_screens=getattr(bank, "required_screens", None),
-                instructions_tg=getattr(bank, "instructions_tg", None),
-                instructions_fb=getattr(bank, "instructions_fb", None),
-                required_screens_tg=getattr(bank, "required_screens_tg", None),
-                required_screens_fb=getattr(bank, "required_screens_fb", None),
-            )
+            src = await _get_team_lead_source(session, message.from_user.id)
+            cond = _format_bank_conditions_for_tl(bank, src)
+            text = f"🏦 <b>{bank.name}</b>\n\n{cond or '—'}"
             has_cond = _has_conditions(bank)
             await message.answer(text, reply_markup=kb_bank_open(bank.id, has_conditions=has_cond))
             return
 
     # default: banks list
-    banks = await list_banks(session)
+    src = await _get_team_lead_source(session, message.from_user.id)
+    banks = await _list_banks_for_tl_source(session, src)
     items = [(b.id, b.name) for b in banks]
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
@@ -1174,20 +1177,15 @@ async def bank_required_back(message: Message, session: AsyncSession, state: FSM
     if bank_id:
         bank = await get_bank(session, int(bank_id))
         if bank:
-            text = _format_bank(
-                bank.name,
-                instructions=getattr(bank, "instructions", None),
-                required_screens=getattr(bank, "required_screens", None),
-                instructions_tg=getattr(bank, "instructions_tg", None),
-                instructions_fb=getattr(bank, "instructions_fb", None),
-                required_screens_tg=getattr(bank, "required_screens_tg", None),
-                required_screens_fb=getattr(bank, "required_screens_fb", None),
-            )
+            src = await _get_team_lead_source(session, message.from_user.id)
+            cond = _format_bank_conditions_for_tl(bank, src)
+            text = f"🏦 <b>{bank.name}</b>\n\n{cond or '—'}"
             has_cond = _has_conditions(bank)
             await message.answer(text, reply_markup=kb_bank_open(bank.id, has_conditions=has_cond))
             return
 
-    banks = await list_banks(session)
+    src = await _get_team_lead_source(session, message.from_user.id)
+    banks = await _list_banks_for_tl_source(session, src)
     items = [(b.id, b.name) for b in banks]
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
@@ -1199,7 +1197,8 @@ async def bank_custom_name_back(message: Message, session: AsyncSession, state: 
     if not await is_team_lead(session, message.from_user.id):
         return
     await state.clear()
-    banks = await list_banks(session)
+    src = await _get_team_lead_source(session, message.from_user.id)
+    banks = await _list_banks_for_tl_source(session, src)
     items = [(b.id, b.name) for b in banks]
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
