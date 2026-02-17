@@ -4938,3 +4938,13 @@ async def edit_rejected_form(cq: CallbackQuery, session: AsyncSession, state: FS
         await cq.message.edit_text("Выберите что хотите изменить:", reply_markup=kb_dm_edit_actions_inline(form_id))
 
 
+@router.callback_query()
+async def dm_unhandled_callback_fallback(cq: CallbackQuery) -> None:
+    data = cq.data or ""
+    try:
+        log.warning("UNHANDLED_CALLBACK data=%s from=%s", data, getattr(cq.from_user, "id", None))
+    except Exception:
+        pass
+    await cq.answer("Эта кнопка неактивна, напишите разработчику", show_alert=True)
+
+
