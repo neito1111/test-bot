@@ -557,7 +557,7 @@ def kb_dev_team_lead_pick_source(tg_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="TG", callback_data=f"dev:tls:set_source:{tg_id}:TG")
     b.button(text="FB", callback_data=f"dev:tls:set_source:{tg_id}:FB")
-    b.button(text="⬅️ Назад", callback_data="dev:menu:team_leads")
+    b.button(text="⬅️ Назад", callback_data="dev:menu:tls")
     b.adjust(2, 1)
     return b.as_markup()
 
@@ -919,7 +919,7 @@ def kb_dev_pick_team_lead_source(tg_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="TG", callback_data=f"dev:set_team_lead_source:{tg_id}:TG")
     b.button(text="FB", callback_data=f"dev:set_team_lead_source:{tg_id}:FB")
-    b.button(text="⬅️ Назад", callback_data=f"dev:edit_user:{tg_id}:role")
+    b.button(text="⬅️ Назад", callback_data=f"dev:edit_user_field:{tg_id}:role")
     b.adjust(2, 1)
     return b.as_markup()
 
