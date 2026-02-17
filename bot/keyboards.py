@@ -456,7 +456,6 @@ def kb_dm_bank_select_inline() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for name in DEFAULT_BANKS:
         b.button(text=name, callback_data=f"dm:bank:{name}")
-    b.button(text="Написать название", callback_data="dm:bank_custom")
     b.button(text="⬅️ Назад", callback_data="dm:back_to_phone")
     b.adjust(3, 1)
     return b.as_markup()
@@ -466,7 +465,6 @@ def kb_dm_bank_select_inline_from_names(names: list[str]) -> InlineKeyboardMarku
     b = InlineKeyboardBuilder()
     for name in names:
         b.button(text=name, callback_data=f"dm:bank:{name}")
-    b.button(text="Написать название", callback_data="dm:bank_custom")
     b.button(text="⬅️ Назад", callback_data="dm:back_to_phone")
     b.adjust(3, 1)
     return b.as_markup()
@@ -476,7 +474,6 @@ def kb_dm_bank_select_inline_from_items(items: list[tuple[int, str]]) -> InlineK
     b = InlineKeyboardBuilder()
     for bank_id, name in items:
         b.button(text=name, callback_data=f"dm:bank_id:{int(bank_id)}")
-    b.button(text="Написать название", callback_data="dm:bank_custom")
     b.button(text="⬅️ Назад", callback_data="dm:back_to_phone")
     b.adjust(3, 1)
     return b.as_markup()
@@ -486,7 +483,6 @@ def kb_dm_edit_bank_select_inline(*, form_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for name in DEFAULT_BANKS:
         b.button(text=name, callback_data=f"dm_edit:bank_pick:{int(form_id)}:{name}")
-    b.button(text="Написать название", callback_data=f"dm_edit:bank_custom:{int(form_id)}")
     b.button(text="⬅️ Назад", callback_data=f"dm_edit:back:{int(form_id)}")
     b.adjust(3, 1)
     return b.as_markup()
@@ -496,7 +492,6 @@ def kb_dm_edit_bank_select_inline_from_names(*, form_id: int, names: list[str]) 
     b = InlineKeyboardBuilder()
     for name in names:
         b.button(text=name, callback_data=f"dm_edit:bank_pick:{int(form_id)}:{name}")
-    b.button(text="Написать название", callback_data=f"dm_edit:bank_custom:{int(form_id)}")
     b.button(text="⬅️ Назад", callback_data=f"dm_edit:back:{int(form_id)}")
     b.adjust(3, 1)
     return b.as_markup()
@@ -506,7 +501,6 @@ def kb_dm_edit_bank_select_inline_from_items(*, form_id: int, items: list[tuple[
     b = InlineKeyboardBuilder()
     for bank_id, name in items:
         b.button(text=name, callback_data=f"dm_edit:bank_pick_id:{int(form_id)}:{int(bank_id)}")
-    b.button(text="Написать название", callback_data=f"dm_edit:bank_custom:{int(form_id)}")
     b.button(text="⬅️ Назад", callback_data=f"dm_edit:back:{int(form_id)}")
     b.adjust(3, 1)
     return b.as_markup()

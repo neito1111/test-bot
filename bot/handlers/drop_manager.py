@@ -2753,14 +2753,8 @@ async def dm_bank_pick_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
 
 @router.callback_query(F.data == "dm:bank_custom")
 async def dm_bank_custom_cb(cq: CallbackQuery, state: FSMContext) -> None:
-    await cq.answer()
-    await state.set_state(DropManagerFormStates.bank_custom)
-    if cq.message:
-        await _safe_edit_message(
-            message=cq.message,
-            text="Введите название банка:",
-            reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
-        )
+    await cq.answer("Ручной ввод банка отключён", show_alert=True)
+    await state.set_state(DropManagerFormStates.bank_select)
 
 
 @router.callback_query(F.data == "dm:back_to_bank_select")
@@ -2790,14 +2784,10 @@ async def form_bank_select(message: Message, session: AsyncSession, state: FSMCo
         return
     txt = message.text.strip()
     if txt == "Написать название":
-        await state.set_state(DropManagerFormStates.bank_custom)
-        await message.answer(
-            "Введите название банка:",
-            reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
-        )
+        await message.answer("Ручной ввод банка отключён. Выберите банк кнопкой.")
         return
     if not await get_bank_by_name(session, txt):
-        await message.answer("Выберите банк кнопкой или нажмите 'Написать название'.")
+        await message.answer("Выберите банк кнопкой.")
         return
     form.bank_name = txt
 
@@ -4408,37 +4398,7 @@ async def dm_edit_bank_pick_cb(cq: CallbackQuery, session: AsyncSession, state: 
 
 @router.callback_query(F.data.startswith("dm_edit:bank_custom:"))
 async def dm_edit_bank_custom_prompt_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
-    if not cq.from_user:
-        return
-    parts = (cq.data or "").split(":")
-    if len(parts) != 3:
-        await cq.answer("Некорректная кнопка", show_alert=True)
-        return
-    try:
-        form_id = int(parts[-1])
-    except Exception:
-        await cq.answer("Некорректная кнопка", show_alert=True)
-        return
-
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
-        await cq.answer("Нет прав", show_alert=True)
-        return
-    form = await get_form(session, form_id)
-    if not form or form.manager_id != user.id:
-        await cq.answer("Анкета не найдена", show_alert=True)
-        return
-
-    await cq.answer()
-    await state.set_state(DropManagerEditStates.bank_custom)
-    await state.update_data(form_id=form.id)
-    if cq.message:
-        await _set_edit_prompt_message(
-            message=cq.message,
-            state=state,
-            text="Введите название банка:",
-            reply_markup=kb_dm_back_cancel_inline(back_cb=f"dm_edit:back:{form.id}", cancel_cb="dm_edit:cancel"),
-        )
+    await cq.answer("Ручной ввод банка отключён", show_alert=True)
 
 
 @router.message(DropManagerEditStates.password, F.text)
