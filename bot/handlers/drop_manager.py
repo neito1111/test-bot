@@ -31,6 +31,7 @@ from bot.keyboards import (
     kb_dm_edit_screens_inline,
     kb_dm_main_inline,
     kb_dm_payment_card_with_back,
+    kb_dm_payment_next_actions,
     kb_dm_shift_comment_inline,
     kb_dm_source_pick_inline,
     kb_dm_traffic_type_inline,
@@ -1168,7 +1169,7 @@ async def dm_pay_card_start_cb(cq: CallbackQuery, session: AsyncSession, state: 
     await cq.answer()
     await state.clear()
     await state.set_state(DropManagerPaymentStates.card_main)
-    await state.update_data(pay_form_id=int(form.id), pay_traffic=str(form.traffic_type))
+    await state.update_data(pay_form_id=int(form.id), pay_traffic=str(form.traffic_type), pay_items=[])
     if cq.message:
         await cq.message.answer("Напишите или перешлите номер карты Прямого клиента за оплату банка")
 
@@ -1255,6 +1256,17 @@ async def dm_pay_amount_main_msg(message: Message, session: AsyncSession, state:
 
     card = str(data.get("pay_card_main") or "")
     traffic = (data.get("pay_traffic") or "").split(".")[-1]
+
+    user = await get_user_by_tg_id(session, message.from_user.id)
+    src = (getattr(user, "manager_source", None) or "").upper() if user else ""
+    if src == "TG":
+        pay_items = list(data.get("pay_items") or [])
+        pay_items.append({"card": card, "amount": amount_raw})
+        await state.update_data(pay_items=pay_items, pay_card_main=None)
+        await state.set_state(DropManagerPaymentStates.next_action)
+        await message.answer("Карта добавлена. Что дальше?", reply_markup=kb_dm_payment_next_actions())
+        return
+
     if traffic == "REFERRAL":
         await state.update_data(pay_amount_main=amount_raw)
         await state.set_state(DropManagerPaymentStates.card_bonus)
@@ -1268,6 +1280,61 @@ async def dm_pay_amount_main_msg(message: Message, session: AsyncSession, state:
     )
     await _finish_payment(message=message, session=session, state=state, form=form, payment_text=payment_text)
     return
+
+
+@router.callback_query(F.data == "dm:pay_add_card")
+async def dm_pay_add_card_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.from_user:
+        return
+    data = await state.get_data()
+    form = await get_form(session, int(data.get("pay_form_id") or 0))
+    if not form:
+        await cq.answer("Анкета не найдена", show_alert=True)
+        await state.clear()
+        return
+    await cq.answer()
+    await state.set_state(DropManagerPaymentStates.card_main)
+    if cq.message:
+        await cq.message.answer("Напишите или перешлите номер карты")
+
+
+@router.message(DropManagerPaymentStates.next_action, F.text)
+async def dm_pay_next_action_text(message: Message) -> None:
+    await message.answer("Используйте кнопки: Добавить карту или Финал", reply_markup=kb_dm_payment_next_actions())
+
+
+@router.callback_query(F.data == "dm:pay_finish")
+async def dm_pay_finish_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.from_user:
+        return
+    data = await state.get_data()
+    form = await get_form(session, int(data.get("pay_form_id") or 0))
+    if not form:
+        await cq.answer("Анкета не найдена", show_alert=True)
+        await state.clear()
+        return
+    pay_items = list(data.get("pay_items") or [])
+    if not pay_items:
+        await cq.answer("Добавьте хотя бы одну карту", show_alert=True)
+        return
+
+    payment_text: list[str] = []
+    for item in pay_items:
+        card = str(item.get("card") or "").strip()
+        amount = str(item.get("amount") or "").strip()
+        if not card or not amount:
+            continue
+        payment_text.append(
+            f"Оплата {_format_payment_phone(form.phone)}\n\n{card}\n\n{amount}"
+        )
+
+    if not payment_text:
+        await cq.answer("Некорректные данные оплаты", show_alert=True)
+        return
+
+    await cq.answer()
+    if cq.message:
+        await _finish_payment(message=cq.message, session=session, state=state, form=form, payment_text=payment_text)
 
 
 @router.message(DropManagerPaymentStates.phone_bonus, F.text)

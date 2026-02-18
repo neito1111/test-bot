@@ -60,6 +60,7 @@ class DropManagerMyFormsStates(StatesGroup):
 class DropManagerPaymentStates(StatesGroup):
     card_main = State()
     amount_main = State()
+    next_action = State()
     phone_bonus = State()
     card_bonus = State()
     amount_bonus = State()

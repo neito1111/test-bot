@@ -105,6 +105,14 @@ def kb_dm_payment_card_with_back(form_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def kb_dm_payment_next_actions() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Добавить карту", callback_data="dm:pay_add_card")
+    b.button(text="Финал", callback_data="dm:pay_finish")
+    b.adjust(2)
+    return b.as_markup()
+
+
 def kb_access_request(tg_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="✅ Апрув", callback_data=AccessRequestCb(action="approve", tg_id=tg_id).pack())
