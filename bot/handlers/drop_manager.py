@@ -1985,7 +1985,9 @@ async def _finalize_shift_with_comment(
     total_direct = 0
     total_referral = 0
     for bank in bank_order:
-        direct = bank_map.get(bank, {}).get("DIRECT", 0)
+        # TG source can store traffic_type as None/"—" (no split by direct/referral),
+        # count such rows as direct in shift report.
+        direct = bank_map.get(bank, {}).get("DIRECT", 0) + bank_map.get(bank, {}).get("—", 0)
         referral = bank_map.get(bank, {}).get("REFERRAL", 0)
         if direct == 0 and referral == 0:
             continue
