@@ -572,7 +572,14 @@ async def _finish_payment(
     await mark_form_payment_done(session, form_id=int(form.id))
     await state.clear()
 
+    src = (getattr(user, "manager_source", None) or "").upper() if user else ""
+    # TG: after finishing payment always return to main menu as requested
+    if src == "TG":
+        await _render_dm_menu(message, session)
+        return
+
     forms_left = await list_dm_approved_without_payment(session, manager_user_id=int(user.id) if user else 0, limit=30)
+    forms_left = [f for f in forms_left if int(getattr(f, "id", 0)) != int(form.id)]
     if forms_left:
         await _render_dm_approved_no_pay(message, session, state)
         return
