@@ -123,11 +123,20 @@ def _bank_duplicate_key(bank_name: str | None) -> str:
     txt = (bank_name or "").strip()
     if not txt:
         return ""
+
+    # New format: core bank name in quotes -> use quoted core only
     m = re.search(r'["«](.*?)["»]', txt)
     if m:
-        return re.sub(r"\s+", " ", (m.group(1) or "").strip()).lower()
-    base = txt.split("-", 1)[0].strip()
-    return re.sub(r"\s+", " ", base).lower()
+        core = re.sub(r"\s+", " ", (m.group(1) or "").strip())
+        return core.lower()
+
+    # Legacy fallback: normalize old names like "Альянс 50к" / "Альянс-500"
+    base = re.sub(r"\s+", " ", txt.split("-", 1)[0]).strip()
+    token = (base.split(" ", 1)[0] if base else "").strip()
+    m2 = re.match(r"([A-Za-zА-Яа-яЁёІіЇїЄє]+)", token)
+    if m2:
+        token = m2.group(1)
+    return token.lower()
 
 
 async def _phone_bank_duplicate_exists_by_key(
