@@ -205,6 +205,7 @@ class ResourceStatus(str, enum.Enum):
     FREE = "free"
     ASSIGNED = "assigned"
     USED = "used"
+    INVALID = "invalid"
 
 
 class ResourcePool(Base):

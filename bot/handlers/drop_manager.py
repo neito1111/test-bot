@@ -5223,8 +5223,19 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
     user = await get_user_by_tg_id(session, cq.from_user.id)
     if not user or user.role != UserRole.DROP_MANAGER:
         return
-    _, _, _, bank_id_s, rtype = (cq.data or "").split(":", 4)
-    bank_id = int(bank_id_s)
+    parts = (cq.data or "").split(":")
+    if len(parts) != 4:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    try:
+        bank_id = int(parts[2])
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    rtype = (parts[3] or "").strip().lower()
+    if rtype not in {"link", "esim", "link_esim"}:
+        await cq.answer("Некорректный тип", show_alert=True)
+        return
     active_cnt = await count_dm_active_pool_items(session, dm_user_id=int(user.id))
     if active_cnt >= 5:
         await cq.answer("Все слоты (5) заняты, освободите их", show_alert=True)
@@ -5337,14 +5348,16 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
     if not it:
         await message.answer("Не удалось сохранить комментарий")
         return
-    # Notify all wictory users
-    users = await list_users(session)
-    for u in users:
-        if u.role == UserRole.WICTORY:
-            try:
-                await message.bot.send_message(int(u.tg_id), f"⚠️ Невалидная ссылка/esim\nitem_id={item_id}\nКомментарий: {message.text}")
-            except Exception:
-                pass
+    # Notify item owner wictory
+    wictory_owner = await get_user_by_id(session, int(it.created_by_user_id)) if it else None
+    if wictory_owner and wictory_owner.role == UserRole.WICTORY:
+        try:
+            await message.bot.send_message(
+                int(wictory_owner.tg_id),
+                f"⚠️ Невалидная ссылка/esim\nitem_id={item_id}\nКомментарий: {message.text}",
+            )
+        except Exception:
+            pass
     await message.answer("Отправлено виктори", reply_markup=kb_dm_resource_menu())
 
 
@@ -5376,21 +5389,30 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
     user = await get_user_by_tg_id(session, cq.from_user.id)
     if not user or user.role != UserRole.DROP_MANAGER:
         return
-    _, _, _, item_id_s, form_id_s = (cq.data or "").split(":", 4)
-    item_id = int(item_id_s)
-    form_id = int(form_id_s)
+    parts = (cq.data or "").split(":")
+    if len(parts) != 4:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    try:
+        item_id = int(parts[2])
+        form_id = int(parts[3])
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
     it = await mark_pool_item_used_with_form(session, item_id=item_id, dm_user_id=int(user.id), form_id=form_id)
     form = await get_form(session, form_id)
     await cq.answer("Подтянуто")
     if not it:
         return
-    users = await list_users(session)
-    for u in users:
-        if u.role == UserRole.WICTORY:
-            try:
-                await cq.bot.send_message(int(u.tg_id), f"✅ Ссылка/Esim использована\nФорма #{form_id}\nБанк: {form.bank_name if form else '—'}\nСсылка/Esim: {it.text_data or '—'}")
-            except Exception:
-                pass
+    wictory_owner = await get_user_by_id(session, int(it.created_by_user_id)) if it else None
+    if wictory_owner and wictory_owner.role == UserRole.WICTORY:
+        try:
+            await cq.bot.send_message(
+                int(wictory_owner.tg_id),
+                f"✅ Ссылка/Esim использована\nФорма #{form_id}\nБанк: {form.bank_name if form else '—'}\nСсылка/Esim: {it.text_data or '—'}",
+            )
+        except Exception:
+            pass
     if cq.message:
         await _safe_edit_message(message=cq.message, text="Кейс привязан к анкете и удален из пула", reply_markup=kb_dm_resource_menu())
 

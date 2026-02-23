@@ -612,17 +612,35 @@ async def list_pool_stats_by_bank(session: AsyncSession, *, source: str | None =
     banks = await list_banks(session)
     out: list[tuple[BankCondition, dict[str, int]]] = []
     for b in banks:
-        stats = {"link": 0, "esim": 0, "link_esim": 0}
+        stats: dict[str, int] = {
+            "link": 0,
+            "esim": 0,
+            "link_esim": 0,
+            "status_free": 0,
+            "status_assigned": 0,
+            "status_used": 0,
+            "status_invalid": 0,
+            "total": 0,
+        }
         for t in (ResourceType.LINK, ResourceType.ESIM, ResourceType.LINK_ESIM):
             q = select(func.count(ResourcePool.id)).where(
                 ResourcePool.bank_id == int(b.id),
                 ResourcePool.type == t,
-                ResourcePool.status == ResourceStatus.FREE,
             )
             if source:
                 q = q.where(ResourcePool.source == source.upper())
             res = await session.execute(q)
             stats[t.value] = int(res.scalar() or 0)
+        for s in (ResourceStatus.FREE, ResourceStatus.ASSIGNED, ResourceStatus.USED, ResourceStatus.INVALID):
+            q = select(func.count(ResourcePool.id)).where(
+                ResourcePool.bank_id == int(b.id),
+                ResourcePool.status == s,
+            )
+            if source:
+                q = q.where(ResourcePool.source == source.upper())
+            res = await session.execute(q)
+            stats[f"status_{s.value}"] = int(res.scalar() or 0)
+        stats["total"] = stats["status_free"] + stats["status_assigned"] + stats["status_used"] + stats["status_invalid"]
         out.append((b, stats))
     return out
 
@@ -689,6 +707,9 @@ async def mark_pool_item_invalid(session: AsyncSession, *, item_id: int, dm_user
     if not item or item.status != ResourceStatus.ASSIGNED or int(item.assigned_to_user_id or 0) != int(dm_user_id):
         return None
     item.invalid_comment = (comment or "").strip()
+    item.status = ResourceStatus.INVALID
+    item.assigned_to_user_id = None
+    item.assigned_at = None
     return item
 
 
@@ -698,5 +719,38 @@ async def mark_pool_item_used_with_form(session: AsyncSession, *, item_id: int, 
         return None
     item.status = ResourceStatus.USED
     item.used_with_form_id = int(form_id)
+    item.assigned_to_user_id = None
+    item.assigned_at = None
+    return item
+
+
+async def list_invalid_pool_items_for_wictory(session: AsyncSession, *, wictory_user_id: int) -> list[ResourcePool]:
+    res = await session.execute(
+        select(ResourcePool)
+        .where(ResourcePool.created_by_user_id == int(wictory_user_id), ResourcePool.status == ResourceStatus.INVALID)
+        .order_by(ResourcePool.updated_at.desc(), ResourcePool.id.desc())
+    )
+    return list(res.scalars().all())
+
+
+async def wictory_update_invalid_item(
+    session: AsyncSession,
+    *,
+    item_id: int,
+    wictory_user_id: int,
+    text_data: str | None = None,
+    screenshots: list[str] | None = None,
+    set_free: bool = False,
+) -> ResourcePool | None:
+    item = await get_pool_item(session, int(item_id))
+    if not item or int(item.created_by_user_id) != int(wictory_user_id) or item.status != ResourceStatus.INVALID:
+        return None
+    if text_data is not None:
+        item.text_data = text_data
+    if screenshots is not None:
+        item.screenshots = list(screenshots)
+    if set_free:
+        item.status = ResourceStatus.FREE
+        item.invalid_comment = None
     return item
 
