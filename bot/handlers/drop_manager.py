@@ -35,6 +35,14 @@ from bot.keyboards import (
     kb_dm_payment_next_actions,
     kb_dm_shift_comment_inline,
     kb_dm_source_pick_inline,
+    kb_dm_resource_menu,
+    kb_dm_resource_banks,
+    kb_dm_resource_bank_actions,
+    kb_dm_resource_empty_bank,
+    kb_dm_resource_type_pick,
+    kb_dm_resource_active_list,
+    kb_dm_resource_active_actions,
+    kb_dm_resource_attach_forms,
     kb_dm_traffic_type_inline,
     kb_dm_forms_filter_menu,
     kb_dm_my_forms_list,
@@ -51,7 +59,7 @@ from bot.keyboards import (
     kb_back_with_main,
 )
 from bot.middlewares import GroupMessageFilter
-from bot.models import Form, FormStatus, Shift, UserRole
+from bot.models import Form, FormStatus, ResourceType, Shift, UserRole
 from bot.repositories import (
     create_bank,
     create_duplicate_report,
@@ -68,8 +76,17 @@ from bot.repositories import (
     get_form,
     get_user_by_id,
     get_user_by_tg_id,
+    list_users,
     find_forms_by_phone,
     list_dm_approved_without_payment,
+    list_dm_active_pool_items,
+    list_free_pool_items_for_bank,
+    assign_pool_item_to_dm,
+    count_dm_active_pool_items,
+    get_pool_item,
+    release_pool_item,
+    mark_pool_item_invalid,
+    mark_pool_item_used_with_form,
     list_user_forms_in_range,
     list_rejected_forms_by_user_id,
     count_rejected_forms_by_user_id,
@@ -83,6 +100,7 @@ from bot.states import (
     DropManagerShiftStates,
     DropManagerMyFormsStates,
     DropManagerPaymentStates,
+    DropManagerResourceStates,
 )
 from bot.utils import (
     extract_forward_payload,
@@ -5110,6 +5128,271 @@ async def edit_rejected_form(cq: CallbackQuery, session: AsyncSession, state: FS
     
     if cq.message:
         await cq.message.edit_text("Выберите что хотите изменить:", reply_markup=kb_dm_edit_actions_inline(form_id))
+
+
+def _pool_type_ru(t: str) -> str:
+    return {
+        "link": "Ссылка",
+        "esim": "Esim",
+        "link_esim": "Ссылка + Esim",
+    }.get((t or "").lower(), t or "—")
+
+
+@router.callback_query(F.data == "dm:resource_menu")
+async def dm_resource_menu(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(message=cq.message, text="<b>Запрос ссылки</b>", reply_markup=kb_dm_resource_menu())
+
+
+@router.callback_query(F.data == "dm:resource_create_bank")
+async def dm_resource_create_bank_stub(cq: CallbackQuery) -> None:
+    await cq.answer("Эта кнопка в разработке", show_alert=True)
+
+
+@router.callback_query(F.data == "dm:resource_banks")
+async def dm_resource_banks(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None))
+    items = _dm_bank_items_with_source(banks, getattr(user, "manager_source", None))
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(message=cq.message, text="Выберите банк:", reply_markup=kb_dm_resource_banks(items))
+
+
+@router.callback_query(F.data.startswith("dm:resource_bank:"))
+async def dm_resource_bank_open(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    bank_id = int((cq.data or "").split(":")[-1])
+    bank = await get_bank(session, bank_id)
+    if not bank:
+        await cq.answer("Банк не найден", show_alert=True)
+        return
+    free_items = await list_free_pool_items_for_bank(session, bank_id=bank_id, source=(getattr(user, "manager_source", None) or "TG"))
+    await cq.answer()
+    if cq.message:
+        if not free_items:
+            await _safe_edit_message(
+                message=cq.message,
+                text="Для этого банка нету ссылок или есим",
+                reply_markup=kb_dm_resource_empty_bank(bank_id),
+            )
+            return
+        lines = [f"<b>{bank.name}</b>"]
+        for t in ("link", "esim", "link_esim"):
+            cnt = len([x for x in free_items if getattr(getattr(x, 'type', None), 'value', '') == t])
+            lines.append(f"• {_pool_type_ru(t)}: <b>{cnt}</b>")
+        await _safe_edit_message(message=cq.message, text="\n".join(lines), reply_markup=kb_dm_resource_bank_actions(bank_id))
+
+
+@router.callback_query(F.data.startswith("dm:resource_take:"))
+async def dm_resource_take(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    bank_id = int((cq.data or "").split(":")[-1])
+    active_cnt = await count_dm_active_pool_items(session, dm_user_id=int(user.id))
+    if active_cnt >= 5:
+        await cq.answer("Все слоты (5) заняты, освободите их", show_alert=True)
+        await dm_resource_active(cq, session)
+        return
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(message=cq.message, text="Что взять?", reply_markup=kb_dm_resource_type_pick(bank_id))
+
+
+@router.callback_query(F.data.startswith("dm:resource_take_type:"))
+async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    _, _, _, bank_id_s, rtype = (cq.data or "").split(":", 4)
+    bank_id = int(bank_id_s)
+    active_cnt = await count_dm_active_pool_items(session, dm_user_id=int(user.id))
+    if active_cnt >= 5:
+        await cq.answer("Все слоты (5) заняты, освободите их", show_alert=True)
+        await dm_resource_active(cq, session)
+        return
+    free_items = await list_free_pool_items_for_bank(session, bank_id=bank_id, source=(getattr(user, "manager_source", None) or "TG"))
+    picked = next((x for x in free_items if getattr(getattr(x, 'type', None), 'value', '') == rtype), None)
+    if not picked:
+        await cq.answer("Нет доступных записей этого типа", show_alert=True)
+        return
+    assigned = await assign_pool_item_to_dm(session, item_id=int(picked.id), dm_user_id=int(user.id))
+    if not assigned:
+        await cq.answer("Запись уже занята", show_alert=True)
+        return
+    bank = await get_bank(session, int(assigned.bank_id))
+    txt = (
+        f"✅ Взято в работу\n\n"
+        f"Банк: <b>{bank.name if bank else '—'}</b>\n"
+        f"Тип: <b>{_pool_type_ru(getattr(assigned.type, 'value', ''))}</b>\n"
+        f"Данные: <code>{assigned.text_data or '—'}</code>"
+    )
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+
+
+@router.callback_query(F.data == "dm:resource_active")
+async def dm_resource_active(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    items = await list_dm_active_pool_items(session, dm_user_id=int(user.id))
+    packed: list[tuple[int, str]] = []
+    for it in items:
+        bank = await get_bank(session, int(it.bank_id))
+        packed.append((int(it.id), f"{bank.name if bank else '—'} | {_pool_type_ru(getattr(it.type, 'value', ''))}"))
+    await cq.answer()
+    if cq.message:
+        if not packed:
+            await _safe_edit_message(message=cq.message, text="Активных ссылок/Esim нет", reply_markup=kb_dm_resource_menu())
+            return
+        await _safe_edit_message(message=cq.message, text="Активные ссылки / Esim:", reply_markup=kb_dm_resource_active_list(packed))
+
+
+@router.callback_query(F.data.startswith("dm:resource_active_open:"))
+async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.assigned_to_user_id or 0) != int(user.id):
+        await cq.answer("Кейс не найден", show_alert=True)
+        return
+    bank = await get_bank(session, int(it.bank_id))
+    txt = (
+        f"Банк: <b>{bank.name if bank else '—'}</b>\n"
+        f"Тип: <b>{_pool_type_ru(getattr(it.type, 'value', ''))}</b>\n"
+        f"Данные: <code>{it.text_data or '—'}</code>"
+    )
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(it.id)))
+
+
+@router.callback_query(F.data.startswith("dm:resource_release:"))
+async def dm_resource_release(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    ok = await release_pool_item(session, item_id=item_id, dm_user_id=int(user.id))
+    await cq.answer("Готово" if ok else "Не удалось", show_alert=not ok)
+    if cq.message and ok:
+        await _safe_edit_message(message=cq.message, text="Ссылка отправлена в общий пул. Если вы ошиблись — возьмите опять ссылку из пула анкет", reply_markup=kb_dm_resource_menu())
+
+
+@router.callback_query(F.data.startswith("dm:resource_invalid:"))
+async def dm_resource_invalid_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    await state.set_state(DropManagerResourceStates.invalid_comment)
+    await state.update_data(resource_item_id=item_id)
+    await cq.answer()
+    if cq.message:
+        await cq.message.answer("Введите комментарий")
+
+
+@router.message(DropManagerResourceStates.invalid_comment, F.text)
+async def dm_resource_invalid_comment(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    if not message.from_user:
+        return
+    user = await get_user_by_tg_id(session, message.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    data = await state.get_data()
+    item_id = int(data.get("resource_item_id") or 0)
+    it = await mark_pool_item_invalid(session, item_id=item_id, dm_user_id=int(user.id), comment=message.text or "")
+    await state.clear()
+    if not it:
+        await message.answer("Не удалось сохранить комментарий")
+        return
+    # Notify all wictory users
+    users = await list_users(session)
+    for u in users:
+        if u.role == UserRole.WICTORY:
+            try:
+                await message.bot.send_message(int(u.tg_id), f"⚠️ Невалидная ссылка/esim\nitem_id={item_id}\nКомментарий: {message.text}")
+            except Exception:
+                pass
+    await message.answer("Отправлено виктори", reply_markup=kb_dm_resource_menu())
+
+
+@router.callback_query(F.data.startswith("dm:resource_attach:"))
+async def dm_resource_attach_start(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    created_from, created_to = _period_to_range("today")
+    forms = [
+        f for f in (await list_user_forms_in_range(session, user_id=int(user.id), created_from=created_from, created_to=created_to))
+        if f.status == FormStatus.APPROVED
+    ]
+    await cq.answer()
+    if cq.message:
+        if not forms:
+            await _safe_edit_message(message=cq.message, text="Сегодня нет апрувнутых анкет", reply_markup=kb_dm_resource_active_actions(item_id))
+            return
+        await _safe_edit_message(message=cq.message, text="Выберите анкету:", reply_markup=kb_dm_resource_attach_forms(item_id, forms))
+
+
+@router.callback_query(F.data.startswith("dm:resource_attach_pick:"))
+async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    _, _, _, item_id_s, form_id_s = (cq.data or "").split(":", 4)
+    item_id = int(item_id_s)
+    form_id = int(form_id_s)
+    it = await mark_pool_item_used_with_form(session, item_id=item_id, dm_user_id=int(user.id), form_id=form_id)
+    form = await get_form(session, form_id)
+    await cq.answer("Подтянуто")
+    if not it:
+        return
+    users = await list_users(session)
+    for u in users:
+        if u.role == UserRole.WICTORY:
+            try:
+                await cq.bot.send_message(int(u.tg_id), f"✅ Ссылка/Esim использована\nФорма #{form_id}\nБанк: {form.bank_name if form else '—'}\nСсылка/Esim: {it.text_data or '—'}")
+            except Exception:
+                pass
+    if cq.message:
+        await _safe_edit_message(message=cq.message, text="Кейс привязан к анкете и удален из пула", reply_markup=kb_dm_resource_menu())
 
 
 @router.callback_query()

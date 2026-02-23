@@ -18,6 +18,7 @@ class UserRole(str, enum.Enum):
     DROP_MANAGER = "DROP_MANAGER"
     TEAM_LEAD = "TEAM_LEAD"
     DEVELOPER = "DEVELOPER"
+    WICTORY = "WICTORY"
 
 
 class FormStatus(str, enum.Enum):
@@ -192,3 +193,38 @@ class TeamLead(Base):
     source: Mapped[TeamLeadSource] = mapped_column(Enum(TeamLeadSource), default=TeamLeadSource.TG, index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ResourceType(str, enum.Enum):
+    LINK = "link"
+    ESIM = "esim"
+    LINK_ESIM = "link_esim"
+
+
+class ResourceStatus(str, enum.Enum):
+    FREE = "free"
+    ASSIGNED = "assigned"
+    USED = "used"
+
+
+class ResourcePool(Base):
+    __tablename__ = "resource_pool"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(8), index=True)
+    bank_id: Mapped[int] = mapped_column(ForeignKey("bank_conditions.id"), index=True)
+    type: Mapped[ResourceType] = mapped_column(Enum(ResourceType), index=True)
+    status: Mapped[ResourceStatus] = mapped_column(Enum(ResourceStatus), default=ResourceStatus.FREE, index=True)
+
+    text_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    screenshots: Mapped[list[str]] = mapped_column(SQLITE_JSON, default=list)
+
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    assigned_to_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    invalid_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    used_with_form_id: Mapped[int | None] = mapped_column(ForeignKey("forms.id"), nullable=True, index=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

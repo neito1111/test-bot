@@ -14,6 +14,9 @@ from bot.models import (
     Form,
     FormStatus,
     ForwardGroup,
+    ResourcePool,
+    ResourceStatus,
+    ResourceType,
     Shift,
     TeamLead,
     TeamLeadSource,
@@ -578,4 +581,122 @@ async def list_all_access_requests(session: AsyncSession) -> list[AccessRequest]
         select(AccessRequest).order_by(AccessRequest.created_at.desc())
     )
     return list(res.scalars().all())
+
+
+async def create_resource_pool_item(
+    session: AsyncSession,
+    *,
+    source: str,
+    bank_id: int,
+    resource_type: str,
+    text_data: str | None,
+    screenshots: list[str] | None,
+    created_by_user_id: int,
+) -> ResourcePool:
+    t = ResourceType(resource_type)
+    item = ResourcePool(
+        source=(source or "TG").upper(),
+        bank_id=int(bank_id),
+        type=t,
+        status=ResourceStatus.FREE,
+        text_data=text_data,
+        screenshots=list(screenshots or []),
+        created_by_user_id=int(created_by_user_id),
+    )
+    session.add(item)
+    await session.flush()
+    return item
+
+
+async def list_pool_stats_by_bank(session: AsyncSession, *, source: str | None = None) -> list[tuple[BankCondition, dict[str, int]]]:
+    banks = await list_banks(session)
+    out: list[tuple[BankCondition, dict[str, int]]] = []
+    for b in banks:
+        stats = {"link": 0, "esim": 0, "link_esim": 0}
+        for t in (ResourceType.LINK, ResourceType.ESIM, ResourceType.LINK_ESIM):
+            q = select(func.count(ResourcePool.id)).where(
+                ResourcePool.bank_id == int(b.id),
+                ResourcePool.type == t,
+                ResourcePool.status == ResourceStatus.FREE,
+            )
+            if source:
+                q = q.where(ResourcePool.source == source.upper())
+            res = await session.execute(q)
+            stats[t.value] = int(res.scalar() or 0)
+        out.append((b, stats))
+    return out
+
+
+async def count_dm_active_pool_items(session: AsyncSession, *, dm_user_id: int) -> int:
+    res = await session.execute(
+        select(func.count(ResourcePool.id)).where(
+            ResourcePool.assigned_to_user_id == int(dm_user_id),
+            ResourcePool.status == ResourceStatus.ASSIGNED,
+        )
+    )
+    return int(res.scalar() or 0)
+
+
+async def list_dm_active_pool_items(session: AsyncSession, *, dm_user_id: int) -> list[ResourcePool]:
+    res = await session.execute(
+        select(ResourcePool)
+        .where(ResourcePool.assigned_to_user_id == int(dm_user_id), ResourcePool.status == ResourceStatus.ASSIGNED)
+        .order_by(ResourcePool.updated_at.desc(), ResourcePool.id.desc())
+    )
+    return list(res.scalars().all())
+
+
+async def get_pool_item(session: AsyncSession, item_id: int) -> ResourcePool | None:
+    res = await session.execute(select(ResourcePool).where(ResourcePool.id == int(item_id)))
+    return res.scalar_one_or_none()
+
+
+async def list_free_pool_items_for_bank(session: AsyncSession, *, bank_id: int, source: str) -> list[ResourcePool]:
+    res = await session.execute(
+        select(ResourcePool)
+        .where(
+            ResourcePool.bank_id == int(bank_id),
+            ResourcePool.source == source.upper(),
+            ResourcePool.status == ResourceStatus.FREE,
+        )
+        .order_by(ResourcePool.id.asc())
+    )
+    return list(res.scalars().all())
+
+
+async def assign_pool_item_to_dm(session: AsyncSession, *, item_id: int, dm_user_id: int) -> ResourcePool | None:
+    item = await get_pool_item(session, int(item_id))
+    if not item or item.status != ResourceStatus.FREE:
+        return None
+    item.status = ResourceStatus.ASSIGNED
+    item.assigned_to_user_id = int(dm_user_id)
+    item.assigned_at = datetime.utcnow()
+    return item
+
+
+async def release_pool_item(session: AsyncSession, *, item_id: int, dm_user_id: int) -> bool:
+    item = await get_pool_item(session, int(item_id))
+    if not item or item.status != ResourceStatus.ASSIGNED or int(item.assigned_to_user_id or 0) != int(dm_user_id):
+        return False
+    item.status = ResourceStatus.FREE
+    item.assigned_to_user_id = None
+    item.assigned_at = None
+    return True
+
+
+async def mark_pool_item_invalid(session: AsyncSession, *, item_id: int, dm_user_id: int, comment: str) -> ResourcePool | None:
+    item = await get_pool_item(session, int(item_id))
+    if not item or item.status != ResourceStatus.ASSIGNED or int(item.assigned_to_user_id or 0) != int(dm_user_id):
+        return None
+    item.invalid_comment = (comment or "").strip()
+    return item
+
+
+async def mark_pool_item_used_with_form(session: AsyncSession, *, item_id: int, dm_user_id: int, form_id: int) -> ResourcePool | None:
+    item = await get_pool_item(session, int(item_id))
+    if not item or item.status != ResourceStatus.ASSIGNED or int(item.assigned_to_user_id or 0) != int(dm_user_id):
+        return None
+    item.status = ResourceStatus.USED
+    item.used_with_form_id = int(form_id)
+    return item
 

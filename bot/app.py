@@ -19,10 +19,11 @@ from bot.handlers.common import router as common_router
 from bot.handlers.developer import router as developer_router
 from bot.handlers.drop_manager import router as drop_router
 from bot.handlers.team_lead import router as team_lead_router
+from bot.handlers.wictory import router as wictory_router
 from bot.logging_setup import setup_logging
 from bot.middlewares import DBSessionMiddleware, GroupChatRestrictionMiddleware, LastPrivateMessageTrackerMiddleware
 from bot.models import Base
-from bot.keyboards import kb_dev_main_inline, kb_dm_main_inline, kb_dm_source_pick_inline, kb_pending_main, kb_team_lead_inline_main
+from bot.keyboards import kb_dev_main_inline, kb_dm_main_inline, kb_dm_source_pick_inline, kb_pending_main, kb_team_lead_inline_main, kb_wictory_main_inline
 from bot.models import UserRole
 from bot.repositories import count_pending_forms, count_rejected_forms_by_user_id, get_active_shift, list_users
 
@@ -221,6 +222,7 @@ async def main(settings: Settings) -> None:
     dp.include_router(common_router)
     dp.include_router(developer_router)
     dp.include_router(team_lead_router)
+    dp.include_router(wictory_router)
     dp.include_router(drop_router)
 
     # Best-effort greeting broadcast to all known users on each restart
@@ -242,6 +244,8 @@ async def main(settings: Settings) -> None:
                             shift = await get_active_shift(session, u.id)
                             rejected_count = await count_rejected_forms_by_user_id(session, u.id) if shift else None
                             rm = kb_dm_main_inline(shift_active=bool(shift), rejected_count=rejected_count)
+                    elif u.role == UserRole.WICTORY:
+                        rm = kb_wictory_main_inline()
                     await bot.send_message(int(u.tg_id), "👋 Привет! Бот перезапущен и снова в работе.", reply_markup=rm)
                 except (TelegramForbiddenError, TelegramBadRequest, TelegramNetworkError):
                     continue

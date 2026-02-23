@@ -419,8 +419,9 @@ def kb_dm_main_inline(*, shift_active: bool, rejected_count: int | None = None) 
         if rejected_count is not None:
             rej_text = f"({int(rejected_count)}) {rej_text}"
         b.button(text=rej_text, callback_data="dm:rejected")
+        b.button(text="Запрос ссылки", callback_data="dm:resource_menu")
         b.button(text="Закончить работу", callback_data="dm:end_shift")
-        b.adjust(2, 2, 1)
+        b.adjust(2, 2, 1, 1)
         return b.as_markup()
     b.button(text="Начать работу", callback_data="dm:start_shift")
     b.adjust(1)
@@ -918,8 +919,9 @@ def kb_dev_pick_user_role(tg_id: int) -> InlineKeyboardMarkup:
     b.button(text="DROP_MANAGER", callback_data=f"dev:set_user_role:{tg_id}:DROP_MANAGER")
     b.button(text="TEAM_LEAD", callback_data=f"dev:set_user_role:{tg_id}:TEAM_LEAD")
     b.button(text="DEVELOPER", callback_data=f"dev:set_user_role:{tg_id}:DEVELOPER")
+    b.button(text="WICTORY", callback_data=f"dev:set_user_role:{tg_id}:WICTORY")
     b.button(text="⬅️ Назад", callback_data=f"dev:back_to_user:{tg_id}")
-    b.adjust(2, 2, 1)
+    b.adjust(2, 2, 1, 1)
     return b.as_markup()
 
 
@@ -952,6 +954,118 @@ def kb_dev_edit_form(form_id: int) -> InlineKeyboardMarkup:
     b.add(InlineKeyboardButton(text="📝 Комментарий", callback_data=f"dev:edit_form_field:{form_id}:comment"))
     b.add(InlineKeyboardButton(text="📊 Статус", callback_data=f"dev:edit_form_field:{form_id}:status"))
     b.add(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"dev:back_to_form:{form_id}"))
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_menu() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Активные ссылки / Esim", callback_data="dm:resource_active")
+    b.button(text="Банки", callback_data="dm:resource_banks")
+    b.button(text="Создать Банк", callback_data="dm:resource_create_bank")
+    b.button(text="⬅️ Назад", callback_data="dm:menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_banks(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for bank_id, name in items[:50]:
+        b.button(text=name, callback_data=f"dm:resource_bank:{int(bank_id)}")
+    b.button(text="⬅️ Назад", callback_data="dm:resource_menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_bank_actions(bank_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Взять ссылку", callback_data=f"dm:resource_take:{int(bank_id)}")
+    b.button(text="Выйти на главную", callback_data="dm:menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_empty_bank(bank_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Выбрать другой банк", callback_data="dm:resource_banks")
+    b.button(text="В главное меню", callback_data="dm:menu")
+    b.button(text="⬅️ Назад", callback_data="dm:resource_menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_type_pick(bank_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Esim", callback_data=f"dm:resource_take_type:{int(bank_id)}:esim")
+    b.button(text="Ссылка", callback_data=f"dm:resource_take_type:{int(bank_id)}:link")
+    b.button(text="Ссылка + Esim", callback_data=f"dm:resource_take_type:{int(bank_id)}:link_esim")
+    b.button(text="⬅️ Назад", callback_data=f"dm:resource_bank:{int(bank_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_active_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for item_id, title in items[:50]:
+        b.button(text=title, callback_data=f"dm:resource_active_open:{int(item_id)}")
+    b.button(text="⬅️ Назад", callback_data="dm:resource_menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_active_actions(item_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Главная", callback_data="dm:menu")
+    b.button(text="Отпустить ссылку", callback_data=f"dm:resource_release:{int(item_id)}")
+    b.button(text="Esim/Ссылка не Валид", callback_data=f"dm:resource_invalid:{int(item_id)}")
+    b.button(text="Подтянуть анкетой", callback_data=f"dm:resource_attach:{int(item_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_attach_forms(item_id: int, forms: list) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for f in forms[:40]:
+        b.button(text=f"#{int(f.id)} {(getattr(f, 'bank_name', None) or '—')}", callback_data=f"dm:resource_attach_pick:{int(item_id)}:{int(f.id)}")
+    b.button(text="⬅️ Назад", callback_data=f"dm:resource_active_open:{int(item_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_main_inline() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Добавить ссылку", callback_data="wictory:add:link")
+    b.button(text="Добавить Esim", callback_data="wictory:add:esim")
+    b.button(text="Добавить ссылку + Esim", callback_data="wictory:add:link_esim")
+    b.button(text="Просмотр пула по банкам", callback_data="wictory:stats")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_banks(items: list[tuple[int, str]], *, back_cb: str = "wictory:home") -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for bank_id, name in items[:50]:
+        b.button(text=name, callback_data=f"wictory:bank:{int(bank_id)}")
+    b.button(text="⬅️ Назад", callback_data=back_cb)
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_preview() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Редактировать", callback_data="wictory:edit")
+    b.button(text="Подтвердить", callback_data="wictory:confirm")
+    b.button(text="⬅️ Назад", callback_data="wictory:home")
+    b.adjust(2, 1)
+    return b.as_markup()
+
+
+def kb_wictory_edit() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Изменить банк", callback_data="wictory:edit:bank")
+    b.button(text="Изменить данные", callback_data="wictory:edit:data")
+    b.button(text="Заменить скриншот", callback_data="wictory:edit:screen")
+    b.button(text="⬅️ Назад", callback_data="wictory:preview")
     b.adjust(1)
     return b.as_markup()
 

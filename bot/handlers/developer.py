@@ -621,6 +621,7 @@ def _format_user_line(u, group_line: str | None = None) -> str:
         UserRole.DEVELOPER: "👨‍💻",
         UserRole.TEAM_LEAD: "👑",
         UserRole.DROP_MANAGER: "🎯",
+        UserRole.WICTORY: "🧩",
         UserRole.PENDING: "⏳"
     }
     
@@ -734,7 +735,7 @@ async def dev_set_user_role_cb(cq: CallbackQuery, session: AsyncSession, state: 
         return
     tg_id = int(parts[-2])
     role = parts[-1].upper()
-    if role not in {"PENDING", "DROP_MANAGER", "TEAM_LEAD", "DEVELOPER"}:
+    if role not in {"PENDING", "DROP_MANAGER", "TEAM_LEAD", "DEVELOPER", "WICTORY"}:
         await cq.answer("Некорректная роль", show_alert=True)
         return
     user = await get_user_by_tg_id(session, tg_id)
@@ -1919,6 +1920,40 @@ async def dev_forms_select(message: Message, session: AsyncSession, state: FSMCo
     )
 
 
+@router.callback_query(F.data.startswith("dev:back_to_form:"))
+async def dev_back_to_form_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not cq.from_user:
+        return
+    if cq.from_user.id not in settings.developer_id_set:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+    try:
+        form_id = int((cq.data or "").split(":")[-1])
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+
+    form = await get_form(session, form_id)
+    if not form:
+        await cq.answer("Анкета не найдена", show_alert=True)
+        return
+
+    await cq.answer()
+    await state.set_state(DeveloperStates.form_view)
+    await state.update_data(current_form_id=form_id)
+    if cq.message:
+        chat_id = int(cq.message.chat.id)
+    else:
+        chat_id = int(cq.from_user.id)
+    await _send_form_details_with_actions(
+        bot=cq.bot,
+        chat_id=chat_id,
+        form=form,
+        form_id=form_id,
+        reply_markup=kb_dev_form_actions(form_id),
+    )
+
+
 @router.callback_query(F.data == "dev:back_to_forms")
 async def dev_back_to_forms(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await cq.answer()
@@ -2495,6 +2530,47 @@ async def dev_select_user_cb(cq: CallbackQuery, session: AsyncSession, state: FS
             "Выберите действие:",
             reply_markup=kb_dev_user_actions(tg_id),
         )
+
+
+@router.callback_query(F.data.startswith("dev:edit_req:"))
+async def dev_edit_req_not_implemented_cb(cq: CallbackQuery) -> None:
+    await cq.answer("Редактирование заявки пока не реализовано", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("dev:del_req:"))
+async def dev_confirm_delete_req_cb(cq: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    if not cq.from_user:
+        return
+    if cq.from_user.id not in settings.developer_id_set:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+
+    await cq.answer()
+    tg_id = int(cq.data.split(":")[-1])
+    ok = await delete_access_request_by_user_id(session, tg_id)
+    await session.commit()
+    pending_cnt = await count_pending_access_requests(session)
+
+    if cq.message:
+        if ok:
+            await cq.message.edit_text(
+                "✅ Заявка удалена.\n\n"
+                "👨‍💻 <b>Панель разработчика</b>\n\n"
+                f"Заявок в очереди: <b>{pending_cnt}</b>",
+                reply_markup=kb_dev_main_inline(),
+            )
+        else:
+            await cq.message.edit_text(
+                "❌ Заявка не найдена.\n\n"
+                "👨‍💻 <b>Панель разработчика</b>\n\n"
+                f"Заявок в очереди: <b>{pending_cnt}</b>",
+                reply_markup=kb_dev_main_inline(),
+            )
+
+
+@router.callback_query(F.data == "dev:cancel")
+async def dev_cancel_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    await dev_back_to_main(cq, session, state, settings)
 
 
 @router.callback_query(F.data.startswith("dev:del_form:"))

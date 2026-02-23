@@ -73,6 +73,18 @@ class DropManagerShiftStates(StatesGroup):
     comment_of_day = State()
 
 
+class WictoryStates(StatesGroup):
+    pick_bank = State()
+    upload_screenshot = State()
+    enter_data = State()
+    preview = State()
+    edit_pick = State()
+
+
+class DropManagerResourceStates(StatesGroup):
+    invalid_comment = State()
+
+
 class DeveloperStates(StatesGroup):
     delete_user_tg_id = State()
     delete_request_tg_id = State()

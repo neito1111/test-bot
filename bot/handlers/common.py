@@ -15,6 +15,7 @@ from bot.keyboards import (
     kb_dm_main_inline,
     kb_dm_source_pick_inline,
     kb_team_lead_inline_main,
+    kb_wictory_main_inline,
 )
 from bot.models import UserRole
 from bot.repositories import (
@@ -90,6 +91,10 @@ async def _render_start(message: Message, session: AsyncSession, settings: Setti
             f"Вы получили одобрение как <b>Дроп‑Менеджер</b> — ваш никнейм <b>{user.manager_tag}</b>.",
             reply_markup=kb_dm_main_inline(shift_active=bool(shift), rejected_count=rejected_count),
         )
+        return
+
+    if user.role == UserRole.WICTORY:
+        await message.answer("Вы в меню <b>WICTORY</b>.", reply_markup=kb_wictory_main_inline())
         return
 
     if not settings.developer_id_set:
