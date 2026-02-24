@@ -46,6 +46,7 @@ from bot.repositories import (
     list_pending_forms,
     list_duplicate_reports_in_range,
     set_form_status,
+    approve_form_if_pending,
     update_bank,
 )
 from bot.utils import (
@@ -1380,15 +1381,11 @@ async def review_form(
         return
 
     if callback_data.action == "approve":
-        # Idempotency guard: prevent duplicate approve side-effects on double-click / stale callbacks
-        if form.status == FormStatus.APPROVED:
-            await cq.answer("Анкета уже подтверждена", show_alert=True)
-            return
-        if form.status != FormStatus.PENDING:
+        # Atomic idempotency guard: only first approve on PENDING succeeds.
+        approved_now = await approve_form_if_pending(session, form_id=int(form.id))
+        if not approved_now:
             await cq.answer("Анкета уже обработана", show_alert=True)
             return
-
-        await set_form_status(session, form.id, FormStatus.APPROVED, team_lead_comment=None)
         manager = await get_user_by_id(session, form.manager_id)
         manager_tg_id = manager.tg_id if manager else None
         manager_tag = manager.manager_tag if manager and manager.manager_tag else "—"

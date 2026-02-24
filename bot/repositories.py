@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Iterable
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.models import (
@@ -283,6 +283,15 @@ async def set_form_status(session: AsyncSession, form_id: int, status: FormStatu
         return
     form.status = status
     form.team_lead_comment = team_lead_comment
+
+
+async def approve_form_if_pending(session: AsyncSession, *, form_id: int) -> bool:
+    res = await session.execute(
+        update(Form)
+        .where(Form.id == int(form_id), Form.status == FormStatus.PENDING)
+        .values(status=FormStatus.APPROVED, team_lead_comment=None)
+    )
+    return int(res.rowcount or 0) > 0
 
 
 async def get_bank_by_name(session: AsyncSession, name: str) -> BankCondition | None:
