@@ -1103,7 +1103,8 @@ def kb_team_lead_inline_main(*, live_count: int | None = None) -> InlineKeyboard
     b.button(text=f"Лайв анкеты{suffix}", callback_data=TeamLeadMenuCb(action="live").pack())
     b.button(text="Условия для сдачи", callback_data=TeamLeadMenuCb(action="banks").pack())
     b.button(text="Дубликаты", callback_data=TeamLeadMenuCb(action="duplicates").pack())
-    b.adjust(2, 1)
+    b.button(text="Пользователи", callback_data=TeamLeadMenuCb(action="users").pack())
+    b.adjust(2, 1, 1)
     return b.as_markup()
 
 

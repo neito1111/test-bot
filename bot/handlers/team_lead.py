@@ -84,6 +84,39 @@ async def _notify_active_dms_banks_updated(bot: any, session: AsyncSession) -> N
         return
 
 
+async def _render_tl_users(cq_or_msg: Message | CallbackQuery, session: AsyncSession) -> None:
+    u = cq_or_msg.from_user
+    if not u:
+        return
+    src = await _get_team_lead_source(session, int(u.id))
+    src_s = str(src).split(".")[-1]
+
+    res = await session.execute(
+        select(User)
+        .where(and_(User.role == UserRole.DROP_MANAGER, User.manager_source == src_s))
+        .order_by(User.manager_tag.asc(), User.id.asc())
+    )
+    users = list(res.scalars().all())
+
+    lines = [f"👥 <b>Пользователи ({src_s})</b>"]
+    if not users:
+        lines.append("\nСписок пуст")
+    else:
+        for dm in users:
+            shift = await get_active_shift(session, int(dm.id))
+            status = "🟢 Активна" if shift else "⚪️ Не активна"
+            uname = f"@{dm.username}" if dm.username else "—"
+            lines.append(f"\n• <b>{dm.manager_tag or '—'}</b> | {uname} | {status}")
+
+    text = "\n".join(lines)
+    if isinstance(cq_or_msg, CallbackQuery):
+        await cq_or_msg.answer()
+        if cq_or_msg.message:
+            await cq_or_msg.message.edit_text(text, reply_markup=kb_team_lead_inline_main(live_count=await count_pending_forms(session)))
+        return
+    await cq_or_msg.answer(text, reply_markup=kb_team_lead_inline_main(live_count=await count_pending_forms(session)))
+
+
 def _period_to_range(period: str | None) -> tuple[datetime | None, datetime | None]:
     p = (period or "today").lower()
     now = datetime.utcnow()
@@ -669,6 +702,16 @@ async def tl_live(cq: CallbackQuery, session: AsyncSession, settings: Settings) 
 
     await _render_tl_live_list(cq, session)
     return
+
+
+@router.callback_query(TeamLeadMenuCb.filter(F.action == "users"))
+async def tl_users(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    if not await is_team_lead(session, cq.from_user.id):
+        await cq.answer("Нет прав", show_alert=True)
+        return
+    await _render_tl_users(cq, session)
 
 
 @router.callback_query(TeamLeadMenuCb.filter(F.action == "duplicates"))
