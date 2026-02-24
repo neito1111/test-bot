@@ -59,7 +59,7 @@ from bot.keyboards import (
     kb_back_with_main,
 )
 from bot.middlewares import GroupMessageFilter
-from bot.models import Form, FormStatus, ResourceType, Shift, UserRole
+from bot.models import Form, FormStatus, ResourceType, Shift, User, UserRole
 from bot.repositories import (
     create_bank,
     create_duplicate_report,
@@ -242,6 +242,91 @@ async def _send_shift_report_to_forward_group(*, bot: Any, session: AsyncSession
             await bot.send_message(int(user.tg_id), "Не удалось отправить отчет в группу. Проверьте, что бот добавлен в группу и имеет права.")
         except Exception:
             pass
+
+
+async def _maybe_send_team_total_report(*, bot: Any, session: AsyncSession, source: str | None) -> None:
+    src = (source or "TG").upper()
+
+    # Send team summary only when no active DM shifts remain for this source.
+    active_res = await session.execute(
+        select(func.count(Shift.id))
+        .select_from(Shift)
+        .join(User, User.id == Shift.manager_id)
+        .where(
+            and_(
+                Shift.ended_at.is_(None),
+                User.role == UserRole.DROP_MANAGER,
+                func.upper(func.coalesce(User.manager_source, "TG")) == src,
+            )
+        )
+    )
+    if int(active_res.scalar() or 0) > 0:
+        return
+
+    now = datetime.utcnow()
+    start = datetime(now.year, now.month, now.day)
+    end = start + timedelta(days=1)
+
+    agg = await session.execute(
+        select(Form.bank_name, Form.traffic_type, func.count(Form.id))
+        .select_from(Form)
+        .join(User, User.id == Form.manager_id)
+        .where(
+            and_(
+                Form.created_at >= start,
+                Form.created_at < end,
+                User.role == UserRole.DROP_MANAGER,
+                func.upper(func.coalesce(User.manager_source, "TG")) == src,
+            )
+        )
+        .group_by(Form.bank_name, Form.traffic_type)
+        .order_by(Form.bank_name.asc())
+    )
+    rows = list(agg.all())
+    if not rows:
+        return
+
+    bank_map: dict[str, dict[str, int]] = {}
+    for bank_name, traffic_type, cnt in rows:
+        bn = (bank_name or "").strip() or "Без банка"
+        tt = (traffic_type or "—").strip() or "—"
+        bank_map.setdefault(bn, {})[tt] = int(cnt or 0)
+
+    seen = set(bank_map.keys())
+    bank_order = [b for b in DEFAULT_BANKS if b in seen] + [b for b in sorted(seen) if b not in DEFAULT_BANKS]
+    if "Без банка" in seen:
+        bank_order = [b for b in bank_order if b != "Без банка"] + ["Без банка"]
+
+    total_direct = 0
+    total_referral = 0
+    lines = [
+        "📊 <b>Общий отчет команды за день</b>",
+        f"Источник: <b>{src}</b>",
+        "",
+    ]
+    for bank in bank_order:
+        direct = bank_map.get(bank, {}).get("DIRECT", 0) + bank_map.get(bank, {}).get("—", 0)
+        referral = bank_map.get(bank, {}).get("REFERRAL", 0)
+        if direct == 0 and referral == 0:
+            continue
+        total_direct += direct
+        total_referral += referral
+        lines.append(f"{bank}:")
+        lines.append(f"Прямой - <b>{direct}</b>")
+        lines.append(f"Сарафан - <b>{referral}</b>")
+        lines.append("")
+
+    if lines and lines[-1] == "":
+        lines.pop()
+    lines.extend(["", "<b>Суммарно за день:</b>", f"Прямой - <b>{total_direct}</b>", f"Сарафан - <b>{total_referral}</b>"])
+
+    report = "\n".join(lines)
+    tl_ids = await list_team_lead_ids_by_source(session, src)
+    for tl_tg_id in tl_ids:
+        try:
+            await bot.send_message(int(tl_tg_id), report)
+        except Exception:
+            continue
 
 
 async def _best_effort_cleanup_recent_messages(*, bot: Any, chat_id: int, around_message_id: int | None, limit: int = 80) -> None:
@@ -2095,6 +2180,7 @@ async def dm_shift_comment_skip(cq: CallbackQuery, session: AsyncSession, state:
     )
 
     await _send_shift_report_to_forward_group(bot=cq.bot, session=session, user=user, report=report)
+    await _maybe_send_team_total_report(bot=cq.bot, session=session, source=getattr(user, "manager_source", None))
     around_id = int(cq.message.message_id) if cq.message else None
     await _best_effort_cleanup_recent_messages(bot=cq.bot, chat_id=int(cq.from_user.id), around_message_id=around_id, limit=120)
 
@@ -2191,6 +2277,7 @@ async def dm_shift_comment_message(message: Message, session: AsyncSession, stat
     )
 
     await _send_shift_report_to_forward_group(bot=message.bot, session=session, user=user, report=report)
+    await _maybe_send_team_total_report(bot=message.bot, session=session, source=getattr(user, "manager_source", None))
     await _best_effort_cleanup_recent_messages(bot=message.bot, chat_id=int(message.chat.id), around_message_id=int(message.message_id), limit=120)
 
     await state.clear()
