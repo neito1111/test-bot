@@ -1380,6 +1380,14 @@ async def review_form(
         return
 
     if callback_data.action == "approve":
+        # Idempotency guard: prevent duplicate approve side-effects on double-click / stale callbacks
+        if form.status == FormStatus.APPROVED:
+            await cq.answer("Анкета уже подтверждена", show_alert=True)
+            return
+        if form.status != FormStatus.PENDING:
+            await cq.answer("Анкета уже обработана", show_alert=True)
+            return
+
         await set_form_status(session, form.id, FormStatus.APPROVED, team_lead_comment=None)
         manager = await get_user_by_id(session, form.manager_id)
         manager_tg_id = manager.tg_id if manager else None
