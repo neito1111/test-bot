@@ -275,6 +275,9 @@ async def _maybe_send_team_total_report(*, bot: Any, session: AsyncSession, sour
             and_(
                 Form.created_at >= start,
                 Form.created_at < end,
+                Form.status != FormStatus.IN_PROGRESS,
+                Form.bank_name.is_not(None),
+                func.trim(Form.bank_name) != "",
                 User.role == UserRole.DROP_MANAGER,
                 func.upper(func.coalesce(User.manager_source, "TG")) == src,
             )
@@ -2090,7 +2093,14 @@ async def _finalize_shift_with_comment(
 
     agg = await session.execute(
         select(Form.bank_name, Form.traffic_type, func.count(Form.id))
-        .where(Form.shift_id == shift.id)
+        .where(
+            and_(
+                Form.shift_id == shift.id,
+                Form.status != FormStatus.IN_PROGRESS,
+                Form.bank_name.is_not(None),
+                func.trim(Form.bank_name) != "",
+            )
+        )
         .group_by(Form.bank_name, Form.traffic_type)
         .order_by(Form.bank_name.asc())
     )
