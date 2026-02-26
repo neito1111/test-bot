@@ -1990,8 +1990,30 @@ async def dm_start_shift_cb(cq: CallbackQuery, session: AsyncSession) -> None:
         )
 
 
+async def _get_end_shift_block_reason(*, session: AsyncSession, user_id: int, shift_id: int, settings: Settings) -> str | None:
+    # Require all shift forms to be approved by TL before shift end.
+    pending_res = await session.execute(
+        select(func.count(Form.id)).where(
+            and_(
+                Form.shift_id == int(shift_id),
+                Form.status != FormStatus.APPROVED,
+            )
+        )
+    )
+    not_approved = int(pending_res.scalar() or 0)
+    if not_approved > 0:
+        return f"Нельзя завершить смену: есть {not_approved} анкет(а/ы) без апрува ТЛ."
+
+    # Test bot stricter rule: no active links/esim assigned to DM.
+    if (getattr(settings, "bot_token", "") or "").startswith("8115544053:"):
+        active_links = await count_dm_active_pool_items(session, dm_user_id=int(user_id))
+        if active_links > 0:
+            return f"Нельзя завершить смену: у вас {active_links} активных ссылок/Esim. Сначала сдайте их."
+    return None
+
+
 @router.callback_query(F.data == "dm:end_shift")
-async def dm_end_shift_prompt_cb(cq: CallbackQuery, session: AsyncSession) -> None:
+async def dm_end_shift_prompt_cb(cq: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     if not cq.from_user:
         return
     user = await get_user_by_tg_id(session, cq.from_user.id)
@@ -2013,6 +2035,18 @@ async def dm_end_shift_prompt_cb(cq: CallbackQuery, session: AsyncSession) -> No
                 reply_markup=kb_dm_main_inline(shift_active=False),
             )
         return
+    reason = await _get_end_shift_block_reason(
+        session=session,
+        user_id=int(user.id),
+        shift_id=int(shift.id),
+        settings=settings,
+    )
+    if reason:
+        await cq.answer(reason, show_alert=True)
+        if cq.message:
+            await _safe_edit_message(message=cq.message, text=reason)
+        return
+
     await cq.answer()
     if cq.message:
         await _safe_edit_message(
@@ -2023,7 +2057,7 @@ async def dm_end_shift_prompt_cb(cq: CallbackQuery, session: AsyncSession) -> No
 
 
 @router.message(F.text == "Закончить работу")
-async def end_work_prompt(message: Message, session: AsyncSession) -> None:
+async def end_work_prompt(message: Message, session: AsyncSession, settings: Settings) -> None:
     # Ignore group messages
     if message.chat.type in ['group', 'supergroup']:
         return
@@ -2036,6 +2070,16 @@ async def end_work_prompt(message: Message, session: AsyncSession) -> None:
     if not shift:
         await message.answer("У вас нет активной смены.", reply_markup=kb_dm_main_inline(shift_active=False))
         return
+    reason = await _get_end_shift_block_reason(
+        session=session,
+        user_id=int(user.id),
+        shift_id=int(shift.id),
+        settings=settings,
+    )
+    if reason:
+        await message.answer(reason)
+        return
+
     await message.answer(
         "После нажатия кнопки вы окончите смену и бот сформирует ваш отчет.",
         reply_markup=kb_yes_no(f"shift_end_confirm:{shift.id}", f"shift_end_cancel:{shift.id}"),
@@ -2050,7 +2094,7 @@ async def end_work_cancel(cq: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("shift_end_confirm:"))
-async def end_work_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+async def end_work_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
     if not cq.from_user:
         return
     user = await get_user_by_tg_id(session, cq.from_user.id)
@@ -2063,6 +2107,18 @@ async def end_work_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMC
     shift = res.scalar_one_or_none()
     if not shift or shift.manager_id != user.id or shift.ended_at is not None:
         await cq.answer("Смена не найдена", show_alert=True)
+        return
+
+    reason = await _get_end_shift_block_reason(
+        session=session,
+        user_id=int(user.id),
+        shift_id=int(shift.id),
+        settings=settings,
+    )
+    if reason:
+        await cq.answer(reason, show_alert=True)
+        if cq.message:
+            await _safe_edit_message(message=cq.message, text=reason)
         return
 
     await cq.answer()
