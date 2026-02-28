@@ -1498,6 +1498,9 @@ async def review_form(
         return
 
     if callback_data.action == "reject":
+        if form.status != FormStatus.PENDING:
+            await cq.answer("Анкета уже обработана", show_alert=True)
+            return
         await state.set_state(TeamLeadStates.reject_comment)
         await state.update_data(form_id=form.id)
         await cq.answer()
