@@ -1110,6 +1110,7 @@ def kb_wictory_invalid_actions(item_id: int) -> InlineKeyboardMarkup:
 
 def kb_wictory_items_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    b.button(text="ℹ️ Что значат значки", callback_data="wictory:items:legend")
     for item_id, title in items[:50]:
         b.button(text=title, callback_data=f"wictory:item:open:{int(item_id)}")
     b.button(text="⬅️ Назад", callback_data="wictory:home")

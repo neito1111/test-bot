@@ -552,7 +552,7 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
         icon = _status_icon(st)
         packed.append((
             int(it.id),
-            f"{icon} #{int(it.id)} {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')}",
+            f"{icon} #{int(it.id)} {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')} | {st.upper()}",
         ))
     await cq.answer()
     if cq.message:
@@ -563,13 +563,31 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
             "<b>Мои записи</b>\n"
             "<blockquote expandable>"
             "Расшифровка статусов:\n"
-            "🟢 free — свободна, можно выдавать DM\n"
-            "🟡 assigned — сейчас в работе у DM\n"
-            "✅ used — уже использована\n"
-            "🔴 invalid — помечена невалидной"
+            "🟢 FREE — свободна, можно выдавать DM\n"
+            "🟡 ASSIGNED — сейчас в работе у DM\n"
+            "✅ USED — уже использована\n"
+            "🔴 INVALID — помечена невалидной"
             "</blockquote>"
         )
         await cq.message.edit_text(legend, reply_markup=kb_wictory_items_list(packed))
+
+
+@router.callback_query(F.data == "wictory:items:legend")
+async def wictory_items_legend(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    await cq.answer()
+    if cq.message:
+        await cq.message.answer(
+            "<blockquote expandable>"
+            "Расшифровка статусов:\n"
+            "🟢 FREE — свободна, можно выдавать DM\n"
+            "🟡 ASSIGNED — сейчас в работе у DM\n"
+            "✅ USED — уже использована\n"
+            "🔴 INVALID — помечена невалидной"
+            "</blockquote>"
+        )
 
 
 @router.callback_query(F.data.startswith("wictory:item:open:"))
