@@ -887,14 +887,29 @@ async def wictory_stats(cq: CallbackQuery, session: AsyncSession, state: FSMCont
         await cq.message.edit_text(txt, reply_markup=kb_wictory_stats_main())
 
 
+def _filters_summary_text(data: dict) -> str:
+    src, banks, date_mode, statuses, types = _read_stats_filters(data)
+    lines = [
+        "<b>Настройка фильтров</b>",
+        "<blockquote expandable>",
+        f"Источник: {', '.join(sorted(src)) if src else 'все'}",
+        f"Банк: {', '.join(str(x) for x in sorted(banks)) if banks else 'все'}",
+        f"Дата: {date_mode}",
+        f"Статус: {', '.join(sorted(statuses)) if statuses else 'все'}",
+        f"Тип: {', '.join(sorted(types)) if types else 'все'}",
+        "</blockquote>",
+    ]
+    return "\n".join(lines)
+
+
 @router.callback_query(F.data == "wictory:stats:filters")
-async def wictory_stats_filters(cq: CallbackQuery, session: AsyncSession) -> None:
+async def wictory_stats_filters(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     user = await _wictory_guard(cq, session)
     if not user:
         return
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Настройка фильтров:", reply_markup=kb_wictory_stats_filters_main())
+        await cq.message.edit_text(_filters_summary_text(await state.get_data()), reply_markup=kb_wictory_stats_filters_main())
 
 
 @router.callback_query(F.data == "wictory:stats:filters:source")
@@ -1051,7 +1066,7 @@ async def wictory_stats_reset(cq: CallbackQuery, session: AsyncSession, state: F
     await state.update_data(stats_sources=[], stats_bank_ids=[], stats_date="all", stats_statuses=[], stats_types=[])
     await cq.answer("Фильтры сброшены")
     if cq.message:
-        await cq.message.edit_text("Настройка фильтров:", reply_markup=kb_wictory_stats_filters_main())
+        await cq.message.edit_text(_filters_summary_text(await state.get_data()), reply_markup=kb_wictory_stats_filters_main())
 
 
 @router.callback_query(F.data == "wictory:stats:apply")
