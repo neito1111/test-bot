@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.keyboards import (
+    kb_wictory_back_cancel,
     kb_wictory_banks,
     kb_wictory_edit,
     kb_wictory_invalid_actions,
@@ -80,6 +81,73 @@ async def wictory_home(cq: CallbackQuery, session: AsyncSession, state: FSMConte
         await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
+@router.callback_query(F.data == "wictory:cancel_create")
+async def wictory_cancel_create(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    await state.clear()
+    await cq.answer("Создание отменено")
+    if cq.message:
+        await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+
+
+@router.callback_query(F.data.startswith("wictory:back:"))
+async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    stage = (cq.data or "").split(":", 2)[-1]
+    data = await state.get_data()
+    rtype = str(data.get("resource_type") or "")
+
+    if stage == "home":
+        await state.clear()
+        await cq.answer()
+        if cq.message:
+            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        return
+
+    if stage == "bank":
+        banks = await list_banks(session)
+        items = [(int(b.id), b.name) for b in banks]
+        await state.set_state(WictoryStates.pick_bank)
+        await cq.answer()
+        if cq.message:
+            await cq.message.edit_text(
+                "Выберите банк:",
+                reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"),
+            )
+        return
+
+    if stage == "upload":
+        await state.set_state(WictoryStates.upload_screenshot)
+        await cq.answer()
+        if cq.message:
+            await cq.message.edit_text(
+                "Отправьте файл Esim (фото/док/видео), до 10 шт., затем напишите 'Готово'",
+                reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+            )
+        return
+
+    if stage == "data":
+        await state.set_state(WictoryStates.enter_data)
+        await cq.answer()
+        if cq.message:
+            await cq.message.edit_text(
+                "Введите ссылку",
+                reply_markup=kb_wictory_back_cancel(back_cb=("wictory:back:upload" if rtype == "link_esim" else "wictory:back:bank")),
+            )
+        return
+
+    if stage == "preview":
+        await state.set_state(WictoryStates.preview)
+        await cq.answer()
+        if cq.message:
+            await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+        return
+
+
 @router.callback_query(F.data.startswith("wictory:add:"))
 async def wictory_add_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     user = await _wictory_guard(cq, session)
@@ -93,7 +161,7 @@ async def wictory_add_start(cq: CallbackQuery, session: AsyncSession, state: FSM
     await state.update_data(resource_type=resource_type)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Выберите банк:", reply_markup=kb_wictory_banks(items))
+        await cq.message.edit_text("Выберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
 
 
 @router.callback_query(WictoryStates.pick_bank, F.data.startswith("wictory:bank:"))
@@ -113,12 +181,15 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
         await state.set_state(WictoryStates.upload_screenshot)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text("Отправьте файл Esim (фото/док/видео), до 10 шт., затем напишите 'Готово'")
+            await cq.message.edit_text(
+                "Отправьте файл Esim (фото/док/видео), до 10 шт., затем напишите 'Готово'",
+                reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+            )
         return
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Введите ссылку")
+        await cq.message.edit_text("Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
 
 
 @router.message(WictoryStates.upload_screenshot, F.photo | F.document | F.video)
@@ -138,7 +209,10 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
     elif message.video:
         shots.append(pack_media_item("video", message.video.file_id))
     await state.update_data(screenshots=shots)
-    await message.answer(f"Принято: {len(shots)}/10. Отправьте ещё файл или напишите 'Готово'.")
+    await message.answer(
+        f"Принято: {len(shots)}/10. Отправьте ещё файл или напишите 'Готово'.",
+        reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+    )
 
 
 @router.message(WictoryStates.upload_screenshot, F.text)
@@ -147,7 +221,10 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
     if not user:
         return
     if (message.text or "").strip().lower() != "готово":
-        await message.answer("Отправьте файл (фото/док/видео) или напишите 'Готово'.")
+        await message.answer(
+            "Отправьте файл (фото/док/видео) или напишите 'Готово'.",
+            reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+        )
         return
     data = await state.get_data()
     shots = list(data.get("screenshots") or [])
@@ -173,7 +250,7 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
         return
 
     await state.set_state(WictoryStates.enter_data)
-    await message.answer("Введите ссылку")
+    await message.answer("Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
 
 
 @router.message(WictoryStates.enter_data, F.text)
