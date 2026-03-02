@@ -917,10 +917,11 @@ async def wictory_stats_filters_source(cq: CallbackQuery, session: AsyncSession,
     user = await _wictory_guard(cq, session)
     if not user:
         return
-    src, _, _, _, _ = _read_stats_filters(await state.get_data())
+    data = await state.get_data()
+    src, _, _, _, _ = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Фильтр: источник", reply_markup=kb_wictory_stats_filter_source(src))
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_source(src))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:status")
@@ -928,10 +929,11 @@ async def wictory_stats_filters_status(cq: CallbackQuery, session: AsyncSession,
     user = await _wictory_guard(cq, session)
     if not user:
         return
-    _, _, _, statuses, _ = _read_stats_filters(await state.get_data())
+    data = await state.get_data()
+    _, _, _, statuses, _ = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Фильтр: статус", reply_markup=kb_wictory_stats_filter_status(statuses))
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_status(statuses))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:type")
@@ -939,10 +941,11 @@ async def wictory_stats_filters_type(cq: CallbackQuery, session: AsyncSession, s
     user = await _wictory_guard(cq, session)
     if not user:
         return
-    _, _, _, _, types = _read_stats_filters(await state.get_data())
+    data = await state.get_data()
+    _, _, _, _, types = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Фильтр: тип", reply_markup=kb_wictory_stats_filter_type(types))
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_type(types))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:date")
@@ -950,10 +953,11 @@ async def wictory_stats_filters_date(cq: CallbackQuery, session: AsyncSession, s
     user = await _wictory_guard(cq, session)
     if not user:
         return
-    _, _, date_mode, _, _ = _read_stats_filters(await state.get_data())
+    data = await state.get_data()
+    _, _, date_mode, _, _ = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Фильтр: дата", reply_markup=kb_wictory_stats_filter_date(date_mode))
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_date(date_mode))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:bank")
@@ -961,12 +965,13 @@ async def wictory_stats_filters_bank(cq: CallbackQuery, session: AsyncSession, s
     user = await _wictory_guard(cq, session)
     if not user:
         return
-    _, bank_ids, _, _, _ = _read_stats_filters(await state.get_data())
+    data = await state.get_data()
+    _, bank_ids, _, _, _ = _read_stats_filters(data)
     banks = await list_banks(session)
     items = [(int(b.id), b.name) for b in banks]
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Фильтр: банк", reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:source:"))
@@ -984,7 +989,8 @@ async def wictory_stats_toggle_source(cq: CallbackQuery, session: AsyncSession, 
     await state.update_data(stats_sources=sorted(src))
     await cq.answer("Обновлено")
     if cq.message:
-        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_source(src))
+        data = await state.get_data()
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_source(src))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:status:"))
@@ -1002,7 +1008,8 @@ async def wictory_stats_toggle_status(cq: CallbackQuery, session: AsyncSession, 
     await state.update_data(stats_statuses=sorted(statuses))
     await cq.answer("Обновлено")
     if cq.message:
-        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_status(statuses))
+        data = await state.get_data()
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_status(statuses))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:type:"))
@@ -1020,7 +1027,8 @@ async def wictory_stats_toggle_type(cq: CallbackQuery, session: AsyncSession, st
     await state.update_data(stats_types=sorted(types))
     await cq.answer("Обновлено")
     if cq.message:
-        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_type(types))
+        data = await state.get_data()
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_type(types))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:bank:"))
@@ -1040,7 +1048,8 @@ async def wictory_stats_toggle_bank(cq: CallbackQuery, session: AsyncSession, st
     items = [(int(b.id), b.name) for b in banks]
     await cq.answer("Обновлено")
     if cq.message:
-        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
+        data = await state.get_data()
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:set_date:"))
@@ -1055,7 +1064,8 @@ async def wictory_stats_set_date(cq: CallbackQuery, session: AsyncSession, state
     await state.update_data(stats_date=mode)
     await cq.answer("Дата обновлена")
     if cq.message:
-        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_date(mode))
+        data = await state.get_data()
+        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_date(mode))
 
 
 @router.callback_query(F.data == "wictory:stats:reset")
