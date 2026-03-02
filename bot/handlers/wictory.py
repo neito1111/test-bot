@@ -347,14 +347,44 @@ async def wictory_stats(cq: CallbackQuery, session: AsyncSession) -> None:
     user = await _wictory_guard(cq, session)
     if not user:
         return
-    stats = await list_pool_stats_by_bank(session, source=(getattr(user, "manager_source", None) or "TG"))
-    lines = ["<b>Пул по банкам</b>\n"]
+    src = (getattr(user, "manager_source", None) or "TG")
+    stats = await list_pool_stats_by_bank(session, source=src)
+
+    total_link = total_esim = total_combo = 0
+    total_free = total_assigned = total_used = total_invalid = 0
+
+    lines = [f"🏦 <b>Пул по банкам</b> · Источник: <b>{src}</b>"]
+    shown = 0
     for bank, st in stats:
-        lines.append(
-            f"• <b>{bank.name}</b>: "
-            f"ссылки={st['link']}, esim={st['esim']}, esim/ссылка={st['link_esim']} | "
-            f"free={st['status_free']}, assigned={st['status_assigned']}, used={st['status_used']}, invalid={st['status_invalid']}"
-        )
+        if int(st.get("total", 0)) <= 0:
+            continue
+        shown += 1
+        total_link += int(st.get("link", 0))
+        total_esim += int(st.get("esim", 0))
+        total_combo += int(st.get("link_esim", 0))
+        total_free += int(st.get("status_free", 0))
+        total_assigned += int(st.get("status_assigned", 0))
+        total_used += int(st.get("status_used", 0))
+        total_invalid += int(st.get("status_invalid", 0))
+
+        lines.extend([
+            "",
+            f"<b>{shown}. {bank.name}</b>",
+            f"• Типы: 🔗 {st['link']} | 📱 {st['esim']} | 🔗+📱 {st['link_esim']}",
+            f"• Статусы: 🟢 free {st['status_free']} | 🟡 in work {st['status_assigned']} | ✅ used {st['status_used']} | 🔴 invalid {st['status_invalid']}",
+        ])
+
+    if shown == 0:
+        lines.append("\nПул пуст.")
+    else:
+        lines.extend([
+            "",
+            "━━━━━━━━━━━━━━",
+            "<b>ИТОГО</b>",
+            f"Типы: 🔗 {total_link} | 📱 {total_esim} | 🔗+📱 {total_combo}",
+            f"Статусы: 🟢 {total_free} | 🟡 {total_assigned} | ✅ {total_used} | 🔴 {total_invalid}",
+        ])
+
     await cq.answer()
     if cq.message:
         await cq.message.edit_text("\n".join(lines), reply_markup=kb_wictory_main_inline())
