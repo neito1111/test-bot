@@ -733,6 +733,16 @@ async def mark_pool_item_used_with_form(session: AsyncSession, *, item_id: int, 
     return item
 
 
+async def list_wictory_pool_items(session: AsyncSession, *, wictory_user_id: int, limit: int = 100) -> list[ResourcePool]:
+    res = await session.execute(
+        select(ResourcePool)
+        .where(ResourcePool.created_by_user_id == int(wictory_user_id))
+        .order_by(ResourcePool.updated_at.desc(), ResourcePool.id.desc())
+        .limit(int(limit))
+    )
+    return list(res.scalars().all())
+
+
 async def list_invalid_pool_items_for_wictory(session: AsyncSession, *, wictory_user_id: int) -> list[ResourcePool]:
     res = await session.execute(
         select(ResourcePool)
@@ -762,4 +772,32 @@ async def wictory_update_invalid_item(
         item.status = ResourceStatus.FREE
         item.invalid_comment = None
     return item
+
+
+async def wictory_update_item(
+    session: AsyncSession,
+    *,
+    item_id: int,
+    wictory_user_id: int,
+    text_data: str | None = None,
+    screenshots: list[str] | None = None,
+) -> ResourcePool | None:
+    item = await get_pool_item(session, int(item_id))
+    if not item or int(item.created_by_user_id) != int(wictory_user_id):
+        return None
+    if text_data is not None:
+        item.text_data = text_data
+    if screenshots is not None:
+        item.screenshots = list(screenshots)
+    return item
+
+
+async def wictory_delete_item(session: AsyncSession, *, item_id: int, wictory_user_id: int) -> bool:
+    item = await get_pool_item(session, int(item_id))
+    if not item or int(item.created_by_user_id) != int(wictory_user_id):
+        return False
+    if item.status == ResourceStatus.ASSIGNED:
+        return False
+    await session.delete(item)
+    return True
 

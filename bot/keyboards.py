@@ -1037,6 +1037,7 @@ def kb_wictory_main_inline() -> InlineKeyboardMarkup:
     b.button(text="Добавить ссылку", callback_data="wictory:add:link")
     b.button(text="Добавить Esim", callback_data="wictory:add:esim")
     b.button(text="Добавить ссылку + Esim", callback_data="wictory:add:link_esim")
+    b.button(text="Мои записи", callback_data="wictory:items:list")
     b.button(text="Просмотр пула по банкам", callback_data="wictory:stats")
     b.button(text="Невалидные ссылки", callback_data="wictory:invalid:list")
     b.adjust(1)
@@ -1103,6 +1104,28 @@ def kb_wictory_invalid_actions(item_id: int) -> InlineKeyboardMarkup:
     b.button(text="Заменить медиа", callback_data=f"wictory:invalid:edit_media:{int(item_id)}")
     b.button(text="Вернуть в общий пул", callback_data=f"wictory:invalid:return:{int(item_id)}")
     b.button(text="⬅️ Назад", callback_data="wictory:invalid:list")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_items_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for item_id, title in items[:50]:
+        b.button(text=title, callback_data=f"wictory:item:open:{int(item_id)}")
+    b.button(text="⬅️ Назад", callback_data="wictory:home")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_item_actions(item_id: int, *, can_edit_data: bool, can_edit_media: bool, can_delete: bool) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if can_edit_data:
+        b.button(text="Редактировать ссылку", callback_data=f"wictory:item:edit_data:{int(item_id)}")
+    if can_edit_media:
+        b.button(text="Редактировать Esim", callback_data=f"wictory:item:edit_media:{int(item_id)}")
+    if can_delete:
+        b.button(text="🗑 Удалить", callback_data=f"wictory:item:delete:{int(item_id)}")
+    b.button(text="⬅️ Назад", callback_data="wictory:items:list")
     b.adjust(1)
     return b.as_markup()
 

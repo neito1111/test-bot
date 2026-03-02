@@ -11,6 +11,8 @@ from bot.keyboards import (
     kb_wictory_edit,
     kb_wictory_invalid_actions,
     kb_wictory_invalid_list,
+    kb_wictory_item_actions,
+    kb_wictory_items_list,
     kb_wictory_main_inline,
     kb_wictory_pick_source,
     kb_wictory_preview,
@@ -25,7 +27,10 @@ from bot.repositories import (
     list_banks,
     list_invalid_pool_items_for_wictory,
     list_pool_stats_by_bank,
+    list_wictory_pool_items,
+    wictory_delete_item,
     wictory_update_invalid_item,
+    wictory_update_item,
 )
 from bot.states import WictoryStates
 from bot.utils import pack_media_item
@@ -290,6 +295,17 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
         await message.answer("Медиа обновлены", reply_markup=kb_wictory_main_inline())
         return
 
+    if data.get("item_edit_mode") == "media" and data.get("item_edit_id"):
+        await wictory_update_item(
+            session,
+            item_id=int(data.get("item_edit_id")),
+            wictory_user_id=int(user.id),
+            screenshots=shots,
+        )
+        await state.clear()
+        await message.answer("Esim обновлены", reply_markup=kb_wictory_main_inline())
+        return
+
     rtype = str(data.get("resource_type") or "")
     if rtype == "esim":
         await state.set_state(WictoryStates.preview)
@@ -317,6 +333,17 @@ async def wictory_enter_data(message: Message, session: AsyncSession, state: FSM
         )
         await state.clear()
         await message.answer("Данные обновлены", reply_markup=kb_wictory_main_inline())
+        return
+
+    if data.get("item_edit_mode") == "data" and data.get("item_edit_id"):
+        await wictory_update_item(
+            session,
+            item_id=int(data.get("item_edit_id")),
+            wictory_user_id=int(user.id),
+            text_data=txt,
+        )
+        await state.clear()
+        await message.answer("Ссылка обновлена", reply_markup=kb_wictory_main_inline())
         return
 
     rtype = str(data.get("resource_type") or "")
@@ -494,6 +521,105 @@ async def wictory_invalid_return(cq: CallbackQuery, session: AsyncSession) -> No
     await cq.answer("Возвращено в общий пул" if it else "Не удалось", show_alert=not bool(it))
     if cq.message:
         await cq.message.edit_text("Запись возвращена в общий пул", reply_markup=kb_wictory_main_inline())
+
+
+@router.callback_query(F.data == "wictory:items:list")
+async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    items = await list_wictory_pool_items(session, wictory_user_id=int(user.id), limit=100)
+    packed: list[tuple[int, str]] = []
+    for it in items:
+        bank = await get_bank(session, int(it.bank_id))
+        packed.append((
+            int(it.id),
+            f"#{int(it.id)} {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')} | {getattr(it.status, 'value', '—')}",
+        ))
+    await cq.answer()
+    if cq.message:
+        if not packed:
+            await cq.message.edit_text("У вас пока нет записей", reply_markup=kb_wictory_main_inline())
+            return
+        await cq.message.edit_text("Мои записи:", reply_markup=kb_wictory_items_list(packed))
+
+
+@router.callback_query(F.data.startswith("wictory:item:open:"))
+async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    bank = await get_bank(session, int(it.bank_id))
+    txt = (
+        f"<b>Запись #{int(it.id)}</b>\n"
+        f"Источник: <b>{it.source}</b>\n"
+        f"Банк: <b>{bank.name if bank else '—'}</b>\n"
+        f"Тип: <b>{getattr(it.type, 'value', '—')}</b>\n"
+        f"Статус: <b>{getattr(it.status, 'value', '—')}</b>\n"
+        f"Ссылка: <code>{it.text_data or '—'}</code>\n"
+        f"Esim файлов: <b>{len(list(it.screenshots or []))}</b>"
+    )
+    can_data = getattr(it.type, "value", "") in {"link", "link_esim"}
+    can_media = getattr(it.type, "value", "") in {"esim", "link_esim"}
+    can_delete = getattr(it.status, "value", "") != "assigned"
+    await state.update_data(item_edit_id=item_id)
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text(
+            txt,
+            reply_markup=kb_wictory_item_actions(item_id, can_edit_data=can_data, can_edit_media=can_media, can_delete=can_delete),
+        )
+
+
+@router.callback_query(F.data.startswith("wictory:item:edit_data:"))
+async def wictory_item_edit_data_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    await state.update_data(item_edit_id=item_id, item_edit_mode="data")
+    await state.set_state(WictoryStates.enter_data)
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Введите новую ссылку")
+
+
+@router.callback_query(F.data.startswith("wictory:item:edit_media:"))
+async def wictory_item_edit_media_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    await state.update_data(item_edit_id=item_id, item_edit_mode="media", screenshots=[])
+    await state.set_state(WictoryStates.upload_screenshot)
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Отправьте новые файлы Esim (до 10), затем напишите 'Готово'")
+
+
+@router.callback_query(F.data.startswith("wictory:item:delete:"))
+async def wictory_item_delete(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    ok = await wictory_delete_item(session, item_id=item_id, wictory_user_id=int(user.id))
+    await cq.answer("Удалено" if ok else "Нельзя удалить (в работе или не найдено)", show_alert=not ok)
+    if cq.message:
+        await cq.message.edit_text("Готово", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:stats")
