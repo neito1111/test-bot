@@ -12,6 +12,7 @@ from bot.keyboards import (
     kb_wictory_invalid_actions,
     kb_wictory_invalid_list,
     kb_wictory_item_actions,
+    kb_wictory_item_edit_back_cancel,
     kb_wictory_items_list,
     kb_wictory_main_inline,
     kb_wictory_pick_source,
@@ -74,6 +75,16 @@ def _bank_items_with_source(banks: list, source: str | None) -> list[tuple[int, 
 
 router = Router(name="wictory")
 router.message.filter(GroupMessageFilter())
+
+
+def _status_icon(status: str) -> str:
+    s = (status or "").lower()
+    return {
+        "free": "🟢",
+        "assigned": "🟡",
+        "used": "✅",
+        "invalid": "🔴",
+    }.get(s, "⚪")
 
 
 def _render_preview(data: dict) -> str:
@@ -262,9 +273,11 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
     elif message.video:
         shots.append(pack_media_item("video", message.video.file_id))
     await state.update_data(screenshots=shots)
+    item_edit_id = data.get("item_edit_id")
+    kb = kb_wictory_item_edit_back_cancel(int(item_edit_id)) if data.get("item_edit_mode") == "media" and item_edit_id else kb_wictory_back_cancel(back_cb="wictory:back:bank")
     await message.answer(
         f"Принято: {len(shots)}/10. Отправьте ещё файл или напишите 'Готово'.",
-        reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+        reply_markup=kb,
     )
 
 
@@ -274,9 +287,12 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
     if not user:
         return
     if (message.text or "").strip().lower() != "готово":
+        data = await state.get_data()
+        item_edit_id = data.get("item_edit_id")
+        kb = kb_wictory_item_edit_back_cancel(int(item_edit_id)) if data.get("item_edit_mode") == "media" and item_edit_id else kb_wictory_back_cancel(back_cb="wictory:back:bank")
         await message.answer(
             "Отправьте файл (фото/док/видео) или напишите 'Готово'.",
-            reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+            reply_markup=kb,
         )
         return
     data = await state.get_data()
@@ -532,16 +548,28 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
     packed: list[tuple[int, str]] = []
     for it in items:
         bank = await get_bank(session, int(it.bank_id))
+        st = str(getattr(it.status, 'value', '—'))
+        icon = _status_icon(st)
         packed.append((
             int(it.id),
-            f"#{int(it.id)} {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')} | {getattr(it.status, 'value', '—')}",
+            f"{icon} #{int(it.id)} {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')}",
         ))
     await cq.answer()
     if cq.message:
         if not packed:
             await cq.message.edit_text("У вас пока нет записей", reply_markup=kb_wictory_main_inline())
             return
-        await cq.message.edit_text("Мои записи:", reply_markup=kb_wictory_items_list(packed))
+        legend = (
+            "<b>Мои записи</b>\n"
+            "<blockquote expandable>"
+            "Расшифровка статусов:\n"
+            "🟢 free — свободна, можно выдавать DM\n"
+            "🟡 assigned — сейчас в работе у DM\n"
+            "✅ used — уже использована\n"
+            "🔴 invalid — помечена невалидной"
+            "</blockquote>"
+        )
+        await cq.message.edit_text(legend, reply_markup=kb_wictory_items_list(packed))
 
 
 @router.callback_query(F.data.startswith("wictory:item:open:"))
@@ -590,7 +618,7 @@ async def wictory_item_edit_data_start(cq: CallbackQuery, session: AsyncSession,
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Введите новую ссылку")
+        await cq.message.edit_text("Введите новую ссылку", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_media:"))
@@ -607,7 +635,7 @@ async def wictory_item_edit_media_start(cq: CallbackQuery, session: AsyncSession
     await state.set_state(WictoryStates.upload_screenshot)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Отправьте новые файлы Esim (до 10), затем напишите 'Готово'")
+        await cq.message.edit_text("Отправьте новые файлы Esim (до 10), затем напишите 'Готово'", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:delete:"))
@@ -620,6 +648,17 @@ async def wictory_item_delete(cq: CallbackQuery, session: AsyncSession) -> None:
     await cq.answer("Удалено" if ok else "Нельзя удалить (в работе или не найдено)", show_alert=not ok)
     if cq.message:
         await cq.message.edit_text("Готово", reply_markup=kb_wictory_main_inline())
+
+
+@router.callback_query(F.data == "wictory:item:cancel_edit")
+async def wictory_item_cancel_edit(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    await state.clear()
+    await cq.answer("Редактирование отменено")
+    if cq.message:
+        await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:stats")

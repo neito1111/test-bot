@@ -1130,6 +1130,14 @@ def kb_wictory_item_actions(item_id: int, *, can_edit_data: bool, can_edit_media
     return b.as_markup()
 
 
+def kb_wictory_item_edit_back_cancel(item_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="⬅️ Назад", callback_data=f"wictory:item:open:{int(item_id)}")
+    b.button(text="❌ Отмена", callback_data="wictory:item:cancel_edit")
+    b.adjust(2)
+    return b.as_markup()
+
+
 def kb_pending_main() -> ReplyKeyboardMarkup:
     b = ReplyKeyboardBuilder()
     b.add(KeyboardButton(text="Запросить доступ"))
