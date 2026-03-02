@@ -617,6 +617,34 @@ async def create_resource_pool_item(
     return item
 
 
+async def list_pool_items_filtered(
+    session: AsyncSession,
+    *,
+    sources: list[str] | None = None,
+    bank_ids: list[int] | None = None,
+    statuses: list[str] | None = None,
+    types: list[str] | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    limit: int = 2000,
+) -> list[ResourcePool]:
+    q = select(ResourcePool)
+    if sources:
+        q = q.where(ResourcePool.source.in_([str(s).upper() for s in sources]))
+    if bank_ids:
+        q = q.where(ResourcePool.bank_id.in_([int(x) for x in bank_ids]))
+    if statuses:
+        q = q.where(ResourcePool.status.in_([ResourceStatus(str(s).lower()) for s in statuses]))
+    if types:
+        q = q.where(ResourcePool.type.in_([ResourceType(str(t).lower()) for t in types]))
+    if created_from is not None:
+        q = q.where(ResourcePool.created_at >= created_from)
+    if created_to is not None:
+        q = q.where(ResourcePool.created_at < created_to)
+    res = await session.execute(q.order_by(ResourcePool.created_at.desc(), ResourcePool.id.desc()).limit(int(limit)))
+    return list(res.scalars().all())
+
+
 async def list_pool_stats_by_bank(session: AsyncSession, *, source: str | None = None) -> list[tuple[BankCondition, dict[str, int]]]:
     banks = await list_banks(session)
     out: list[tuple[BankCondition, dict[str, int]]] = []

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -19,6 +21,13 @@ from bot.keyboards import (
     kb_wictory_main_inline,
     kb_wictory_pick_source,
     kb_wictory_preview,
+    kb_wictory_stats_filter_bank,
+    kb_wictory_stats_filter_date,
+    kb_wictory_stats_filter_source,
+    kb_wictory_stats_filter_status,
+    kb_wictory_stats_filter_type,
+    kb_wictory_stats_filters_main,
+    kb_wictory_stats_main,
 )
 from bot.middlewares import GroupMessageFilter
 from bot.models import ResourceStatus, UserRole
@@ -29,7 +38,7 @@ from bot.repositories import (
     get_user_by_tg_id,
     list_banks,
     list_invalid_pool_items_for_wictory,
-    list_pool_stats_by_bank,
+    list_pool_items_filtered,
     list_wictory_pool_items,
     wictory_delete_item,
     wictory_update_invalid_item,
@@ -785,49 +794,272 @@ async def wictory_item_cancel_edit(cq: CallbackQuery, session: AsyncSession, sta
         await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
-@router.callback_query(F.data == "wictory:stats")
-async def wictory_stats(cq: CallbackQuery, session: AsyncSession) -> None:
-    user = await _wictory_guard(cq, session)
-    if not user:
-        return
-    src = (getattr(user, "manager_source", None) or "TG")
-    stats = await list_pool_stats_by_bank(session, source=src)
+def _read_stats_filters(data: dict) -> tuple[set[str], set[int], str, set[str], set[str]]:
+    src = {str(x).upper() for x in (data.get("stats_sources") or [])}
+    banks = {int(x) for x in (data.get("stats_bank_ids") or [])}
+    date = str(data.get("stats_date") or "all")
+    statuses = {str(x).lower() for x in (data.get("stats_statuses") or [])}
+    types = {str(x).lower() for x in (data.get("stats_types") or [])}
+    return src, banks, date, statuses, types
+
+
+async def _render_stats_text(session: AsyncSession, data: dict) -> str:
+    src, banks, date_mode, statuses, types = _read_stats_filters(data)
+    now = datetime.utcnow()
+    created_from = None
+    if date_mode == "today":
+        created_from = datetime(now.year, now.month, now.day)
+    elif date_mode == "7d":
+        created_from = now - timedelta(days=7)
+    elif date_mode == "30d":
+        created_from = now - timedelta(days=30)
+
+    items = await list_pool_items_filtered(
+        session,
+        sources=list(src) or None,
+        bank_ids=list(banks) or None,
+        statuses=list(statuses) or None,
+        types=list(types) or None,
+        created_from=created_from,
+        limit=3000,
+    )
+
+    bank_map = {int(b.id): b for b in await list_banks(session)}
+    grouped: dict[tuple[int, str], dict[str, int]] = {}
+    for it in items:
+        key = (int(it.bank_id), str(getattr(it, "source", "TG")).upper())
+        st = grouped.setdefault(key, {"link": 0, "esim": 0, "link_esim": 0, "free": 0, "assigned": 0, "used": 0, "invalid": 0, "total": 0})
+        st[str(getattr(it.type, "value", "link"))] += 1
+        st[str(getattr(it.status, "value", "free"))] += 1
+        st["total"] += 1
+
+    filt_lines = ["<b>Фильтры</b>"]
+    filt_lines.append(f"• Источник: {', '.join(sorted(src)) if src else 'все'}")
+    filt_lines.append(f"• Банк: {', '.join(str(x) for x in sorted(banks)) if banks else 'все'}")
+    filt_lines.append(f"• Дата: {date_mode}")
+    filt_lines.append(f"• Статус: {', '.join(sorted(statuses)) if statuses else 'все'}")
+    filt_lines.append(f"• Тип: {', '.join(sorted(types)) if types else 'все'}")
+
+    lines = ["🏦 <b>Пул по банкам</b>", "<blockquote expandable>" + "\n".join(filt_lines) + "</blockquote>"]
+    if not grouped:
+        lines.append("\nПул пуст по выбранным фильтрам.")
+        return "\n".join(lines)
 
     total_link = total_esim = total_combo = 0
     total_free = total_assigned = total_used = total_invalid = 0
-
-    lines = [f"🏦 <b>Пул по банкам</b> · Источник: <b>{src}</b>"]
-    shown = 0
-    for bank, st in stats:
-        if int(st.get("total", 0)) <= 0:
-            continue
-        shown += 1
-        total_link += int(st.get("link", 0))
-        total_esim += int(st.get("esim", 0))
-        total_combo += int(st.get("link_esim", 0))
-        total_free += int(st.get("status_free", 0))
-        total_assigned += int(st.get("status_assigned", 0))
-        total_used += int(st.get("status_used", 0))
-        total_invalid += int(st.get("status_invalid", 0))
-
+    idx = 0
+    for (bank_id, source), st in sorted(grouped.items(), key=lambda x: (-x[1]["total"], x[0][0], x[0][1])):
+        idx += 1
+        bank_name = getattr(bank_map.get(bank_id), "name", "—")
+        total_link += st["link"]
+        total_esim += st["esim"]
+        total_combo += st["link_esim"]
+        total_free += st["free"]
+        total_assigned += st["assigned"]
+        total_used += st["used"]
+        total_invalid += st["invalid"]
         lines.extend([
             "",
-            f"<b>{shown}. {bank.name}</b>",
+            f"<b>{idx}. {bank_name} ({source})</b>",
             f"• Типы: 🔗 {st['link']} | 📱 {st['esim']} | 🔗+📱 {st['link_esim']}",
-            f"• Статусы: 🟢 free {st['status_free']} | 🟡 in work {st['status_assigned']} | ✅ used {st['status_used']} | 🔴 invalid {st['status_invalid']}",
+            f"• Статусы: 🟢 {st['free']} | 🟡 {st['assigned']} | ✅ {st['used']} | 🔴 {st['invalid']}",
         ])
 
-    if shown == 0:
-        lines.append("\nПул пуст.")
-    else:
-        lines.extend([
-            "",
-            "━━━━━━━━━━━━━━",
-            "<b>ИТОГО</b>",
-            f"Типы: 🔗 {total_link} | 📱 {total_esim} | 🔗+📱 {total_combo}",
-            f"Статусы: 🟢 {total_free} | 🟡 {total_assigned} | ✅ {total_used} | 🔴 {total_invalid}",
-        ])
+    lines.extend([
+        "",
+        "━━━━━━━━━━━━━━",
+        "<b>ИТОГО</b>",
+        f"Типы: 🔗 {total_link} | 📱 {total_esim} | 🔗+📱 {total_combo}",
+        f"Статусы: 🟢 {total_free} | 🟡 {total_assigned} | ✅ {total_used} | 🔴 {total_invalid}",
+    ])
+    return "\n".join(lines)
 
+
+@router.callback_query(F.data == "wictory:stats")
+async def wictory_stats(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    data = await state.get_data()
+    txt = await _render_stats_text(session, data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("\n".join(lines), reply_markup=kb_wictory_main_inline())
+        await cq.message.edit_text(txt, reply_markup=kb_wictory_stats_main())
+
+
+@router.callback_query(F.data == "wictory:stats:filters")
+async def wictory_stats_filters(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Настройка фильтров:", reply_markup=kb_wictory_stats_filters_main())
+
+
+@router.callback_query(F.data == "wictory:stats:filters:source")
+async def wictory_stats_filters_source(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    src, _, _, _, _ = _read_stats_filters(await state.get_data())
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Фильтр: источник", reply_markup=kb_wictory_stats_filter_source(src))
+
+
+@router.callback_query(F.data == "wictory:stats:filters:status")
+async def wictory_stats_filters_status(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    _, _, _, statuses, _ = _read_stats_filters(await state.get_data())
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Фильтр: статус", reply_markup=kb_wictory_stats_filter_status(statuses))
+
+
+@router.callback_query(F.data == "wictory:stats:filters:type")
+async def wictory_stats_filters_type(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    _, _, _, _, types = _read_stats_filters(await state.get_data())
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Фильтр: тип", reply_markup=kb_wictory_stats_filter_type(types))
+
+
+@router.callback_query(F.data == "wictory:stats:filters:date")
+async def wictory_stats_filters_date(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    _, _, date_mode, _, _ = _read_stats_filters(await state.get_data())
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Фильтр: дата", reply_markup=kb_wictory_stats_filter_date(date_mode))
+
+
+@router.callback_query(F.data == "wictory:stats:filters:bank")
+async def wictory_stats_filters_bank(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    _, bank_ids, _, _, _ = _read_stats_filters(await state.get_data())
+    banks = await list_banks(session)
+    items = [(int(b.id), b.name) for b in banks]
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Фильтр: банк", reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
+
+
+@router.callback_query(F.data.startswith("wictory:stats:toggle:source:"))
+async def wictory_stats_toggle_source(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    val = (cq.data or "").split(":")[-1].upper()
+    data = await state.get_data()
+    src, _, _, _, _ = _read_stats_filters(data)
+    if val in src:
+        src.remove(val)
+    else:
+        src.add(val)
+    await state.update_data(stats_sources=sorted(src))
+    await cq.answer("Обновлено")
+    if cq.message:
+        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_source(src))
+
+
+@router.callback_query(F.data.startswith("wictory:stats:toggle:status:"))
+async def wictory_stats_toggle_status(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    val = (cq.data or "").split(":")[-1].lower()
+    data = await state.get_data()
+    _, _, _, statuses, _ = _read_stats_filters(data)
+    if val in statuses:
+        statuses.remove(val)
+    else:
+        statuses.add(val)
+    await state.update_data(stats_statuses=sorted(statuses))
+    await cq.answer("Обновлено")
+    if cq.message:
+        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_status(statuses))
+
+
+@router.callback_query(F.data.startswith("wictory:stats:toggle:type:"))
+async def wictory_stats_toggle_type(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    val = (cq.data or "").split(":")[-1].lower()
+    data = await state.get_data()
+    _, _, _, _, types = _read_stats_filters(data)
+    if val in types:
+        types.remove(val)
+    else:
+        types.add(val)
+    await state.update_data(stats_types=sorted(types))
+    await cq.answer("Обновлено")
+    if cq.message:
+        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_type(types))
+
+
+@router.callback_query(F.data.startswith("wictory:stats:toggle:bank:"))
+async def wictory_stats_toggle_bank(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    bid = int((cq.data or "").split(":")[-1])
+    data = await state.get_data()
+    _, bank_ids, _, _, _ = _read_stats_filters(data)
+    if bid in bank_ids:
+        bank_ids.remove(bid)
+    else:
+        bank_ids.add(bid)
+    await state.update_data(stats_bank_ids=sorted(bank_ids))
+    banks = await list_banks(session)
+    items = [(int(b.id), b.name) for b in banks]
+    await cq.answer("Обновлено")
+    if cq.message:
+        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
+
+
+@router.callback_query(F.data.startswith("wictory:stats:set_date:"))
+async def wictory_stats_set_date(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    mode = (cq.data or "").split(":")[-1]
+    if mode not in {"all", "today", "7d", "30d"}:
+        await cq.answer("Некорректная дата", show_alert=True)
+        return
+    await state.update_data(stats_date=mode)
+    await cq.answer("Дата обновлена")
+    if cq.message:
+        await cq.message.edit_reply_markup(reply_markup=kb_wictory_stats_filter_date(mode))
+
+
+@router.callback_query(F.data == "wictory:stats:reset")
+async def wictory_stats_reset(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    await state.update_data(stats_sources=[], stats_bank_ids=[], stats_date="all", stats_statuses=[], stats_types=[])
+    await cq.answer("Фильтры сброшены")
+    if cq.message:
+        await cq.message.edit_text("Настройка фильтров:", reply_markup=kb_wictory_stats_filters_main())
+
+
+@router.callback_query(F.data == "wictory:stats:apply")
+async def wictory_stats_apply(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    txt = await _render_stats_text(session, await state.get_data())
+    await cq.answer("Готово")
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=kb_wictory_stats_main())

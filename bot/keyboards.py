@@ -1108,6 +1108,78 @@ def kb_wictory_invalid_actions(item_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def kb_wictory_stats_main() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Фильтр", callback_data="wictory:stats:filters")
+    b.button(text="⬅️ Назад", callback_data="wictory:home")
+    b.adjust(2)
+    return b.as_markup()
+
+
+def kb_wictory_stats_filters_main() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Источник", callback_data="wictory:stats:filters:source")
+    b.button(text="Банк", callback_data="wictory:stats:filters:bank")
+    b.button(text="Дата", callback_data="wictory:stats:filters:date")
+    b.button(text="Статус", callback_data="wictory:stats:filters:status")
+    b.button(text="Тип", callback_data="wictory:stats:filters:type")
+    b.button(text="🔎 Поиск", callback_data="wictory:stats:apply")
+    b.button(text="Сбросить", callback_data="wictory:stats:reset")
+    b.button(text="⬅️ Назад", callback_data="wictory:stats")
+    b.adjust(2, 2, 1, 2, 1)
+    return b.as_markup()
+
+
+def kb_wictory_stats_filter_source(selected: set[str]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for s in ("TG", "FB"):
+        mark = "✅ " if s in selected else ""
+        b.button(text=f"{mark}{s}", callback_data=f"wictory:stats:toggle:source:{s}")
+    b.button(text="⬅️ Назад", callback_data="wictory:stats:filters")
+    b.adjust(2, 1)
+    return b.as_markup()
+
+
+def kb_wictory_stats_filter_status(selected: set[str]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for s in ("free", "assigned", "used", "invalid"):
+        mark = "✅ " if s in selected else ""
+        b.button(text=f"{mark}{s.upper()}", callback_data=f"wictory:stats:toggle:status:{s}")
+    b.button(text="⬅️ Назад", callback_data="wictory:stats:filters")
+    b.adjust(2, 2, 1)
+    return b.as_markup()
+
+
+def kb_wictory_stats_filter_type(selected: set[str]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for t in ("link", "esim", "link_esim"):
+        mark = "✅ " if t in selected else ""
+        b.button(text=f"{mark}{t}", callback_data=f"wictory:stats:toggle:type:{t}")
+    b.button(text="⬅️ Назад", callback_data="wictory:stats:filters")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_stats_filter_date(current: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for key, title in (("all", "За всё время"), ("today", "Сегодня"), ("7d", "7 дней"), ("30d", "30 дней")):
+        mark = "✅ " if current == key else ""
+        b.button(text=f"{mark}{title}", callback_data=f"wictory:stats:set_date:{key}")
+    b.button(text="⬅️ Назад", callback_data="wictory:stats:filters")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_stats_filter_bank(items: list[tuple[int, str]], selected: set[int]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for bid, title in items[:60]:
+        mark = "✅ " if int(bid) in selected else ""
+        b.button(text=f"{mark}{title}", callback_data=f"wictory:stats:toggle:bank:{int(bid)}")
+    b.button(text="⬅️ Назад", callback_data="wictory:stats:filters")
+    b.adjust(1)
+    return b.as_markup()
+
+
 def kb_wictory_items_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for item_id, title in items[:50]:
