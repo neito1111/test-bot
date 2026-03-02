@@ -1110,7 +1110,6 @@ def kb_wictory_invalid_actions(item_id: int) -> InlineKeyboardMarkup:
 
 def kb_wictory_items_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="ℹ️ Что значат значки", callback_data="wictory:items:legend")
     for item_id, title in items[:50]:
         b.button(text=title, callback_data=f"wictory:item:open:{int(item_id)}")
     b.button(text="⬅️ Назад", callback_data="wictory:home")
@@ -1118,12 +1117,15 @@ def kb_wictory_items_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_wictory_item_actions(item_id: int, *, can_edit_data: bool, can_edit_media: bool, can_delete: bool) -> InlineKeyboardMarkup:
+def kb_wictory_item_actions(item_id: int, *, can_edit_data: bool, can_edit_media: bool, can_delete: bool, can_edit_meta: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if can_edit_data:
         b.button(text="Редактировать ссылку", callback_data=f"wictory:item:edit_data:{int(item_id)}")
     if can_edit_media:
         b.button(text="Редактировать Esim", callback_data=f"wictory:item:edit_media:{int(item_id)}")
+    if can_edit_meta:
+        b.button(text="Изменить банк", callback_data=f"wictory:item:edit_bank:{int(item_id)}")
+        b.button(text="Изменить источник", callback_data=f"wictory:item:edit_source:{int(item_id)}")
     if can_delete:
         b.button(text="🗑 Удалить", callback_data=f"wictory:item:delete:{int(item_id)}")
     b.button(text="⬅️ Назад", callback_data="wictory:items:list")
@@ -1136,6 +1138,24 @@ def kb_wictory_item_edit_back_cancel(item_id: int) -> InlineKeyboardMarkup:
     b.button(text="⬅️ Назад", callback_data=f"wictory:item:open:{int(item_id)}")
     b.button(text="❌ Отмена", callback_data="wictory:item:cancel_edit")
     b.adjust(2)
+    return b.as_markup()
+
+
+def kb_wictory_item_pick_source(item_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="TG", callback_data=f"wictory:item:set_source:{int(item_id)}:TG")
+    b.button(text="FB", callback_data=f"wictory:item:set_source:{int(item_id)}:FB")
+    b.button(text="⬅️ Назад", callback_data=f"wictory:item:open:{int(item_id)}")
+    b.adjust(2, 1)
+    return b.as_markup()
+
+
+def kb_wictory_item_banks(items: list[tuple[int, str]], *, item_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for bank_id, name in items[:50]:
+        b.button(text=name, callback_data=f"wictory:item:set_bank:{int(item_id)}:{int(bank_id)}")
+    b.button(text="⬅️ Назад", callback_data=f"wictory:item:open:{int(item_id)}")
+    b.adjust(1)
     return b.as_markup()
 
 

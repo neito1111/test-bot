@@ -12,7 +12,9 @@ from bot.keyboards import (
     kb_wictory_invalid_actions,
     kb_wictory_invalid_list,
     kb_wictory_item_actions,
+    kb_wictory_item_banks,
     kb_wictory_item_edit_back_cancel,
+    kb_wictory_item_pick_source,
     kb_wictory_items_list,
     kb_wictory_main_inline,
     kb_wictory_pick_source,
@@ -610,15 +612,24 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         f"Ссылка: <code>{it.text_data or '—'}</code>\n"
         f"Esim файлов: <b>{len(list(it.screenshots or []))}</b>"
     )
-    can_data = getattr(it.type, "value", "") in {"link", "link_esim"}
-    can_media = getattr(it.type, "value", "") in {"esim", "link_esim"}
-    can_delete = getattr(it.status, "value", "") != "assigned"
+    st_val = getattr(it.status, "value", "")
+    can_edit_by_status = st_val in {"free", "invalid"}
+    can_data = can_edit_by_status and getattr(it.type, "value", "") in {"link", "link_esim"}
+    can_media = can_edit_by_status and getattr(it.type, "value", "") in {"esim", "link_esim"}
+    can_delete = st_val != "assigned"
+    can_edit_meta = can_edit_by_status
     await state.update_data(item_edit_id=item_id)
     await cq.answer()
     if cq.message:
         await cq.message.edit_text(
             txt,
-            reply_markup=kb_wictory_item_actions(item_id, can_edit_data=can_data, can_edit_media=can_media, can_delete=can_delete),
+            reply_markup=kb_wictory_item_actions(
+                item_id,
+                can_edit_data=can_data,
+                can_edit_media=can_media,
+                can_delete=can_delete,
+                can_edit_meta=can_edit_meta,
+            ),
         )
 
 
@@ -631,6 +642,9 @@ async def wictory_item_edit_data_start(cq: CallbackQuery, session: AsyncSession,
     it = await get_pool_item(session, item_id)
     if not it or int(it.created_by_user_id) != int(user.id):
         await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
         return
     await state.update_data(item_edit_id=item_id, item_edit_mode="data")
     await state.set_state(WictoryStates.enter_data)
@@ -649,11 +663,103 @@ async def wictory_item_edit_media_start(cq: CallbackQuery, session: AsyncSession
     if not it or int(it.created_by_user_id) != int(user.id):
         await cq.answer("Запись не найдена", show_alert=True)
         return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
     await state.update_data(item_edit_id=item_id, item_edit_mode="media", screenshots=[])
     await state.set_state(WictoryStates.upload_screenshot)
     await cq.answer()
     if cq.message:
         await cq.message.edit_text("Отправьте новые файлы Esim (до 10), затем напишите 'Готово'", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
+
+
+@router.callback_query(F.data.startswith("wictory:item:edit_source:"))
+async def wictory_item_edit_source_start(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Выберите новый источник:", reply_markup=kb_wictory_item_pick_source(item_id))
+
+
+@router.callback_query(F.data.startswith("wictory:item:set_source:"))
+async def wictory_item_set_source(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) < 5:
+        await cq.answer("Некорректные данные", show_alert=True)
+        return
+    item_id = int(parts[3])
+    src = (parts[4] or "").upper()
+    if src not in {"TG", "FB"}:
+        await cq.answer("Некорректный источник", show_alert=True)
+        return
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    await wictory_update_item(session, item_id=item_id, wictory_user_id=int(user.id), source=src)
+    await cq.answer("Источник обновлён")
+    if cq.message:
+        await cq.message.edit_text("Источник обновлён", reply_markup=kb_wictory_main_inline())
+
+
+@router.callback_query(F.data.startswith("wictory:item:edit_bank:"))
+async def wictory_item_edit_bank_start(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    banks = await _list_banks_for_source(session, getattr(it, "source", None))
+    items = _bank_items_with_source(banks, getattr(it, "source", None))
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Выберите новый банк:", reply_markup=kb_wictory_item_banks(items, item_id=item_id))
+
+
+@router.callback_query(F.data.startswith("wictory:item:set_bank:"))
+async def wictory_item_set_bank(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) < 5:
+        await cq.answer("Некорректные данные", show_alert=True)
+        return
+    item_id = int(parts[3])
+    bank_id = int(parts[4])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    await wictory_update_item(session, item_id=item_id, wictory_user_id=int(user.id), bank_id=bank_id)
+    await cq.answer("Банк обновлён")
+    if cq.message:
+        await cq.message.edit_text("Банк обновлён", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data.startswith("wictory:item:delete:"))
