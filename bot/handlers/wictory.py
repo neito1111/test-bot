@@ -30,6 +30,43 @@ from bot.repositories import (
 from bot.states import WictoryStates
 from bot.utils import pack_media_item
 
+
+async def _list_banks_for_source(session: AsyncSession, source: str | None) -> list:
+    src = (source or "TG").upper()
+    banks = await list_banks(session)
+
+    def _has_fb(bank) -> bool:
+        return bool((getattr(bank, "instructions_fb", None) or "").strip()) or getattr(bank, "required_screens_fb", None) is not None
+
+    def _has_tg(bank) -> bool:
+        return bool((getattr(bank, "instructions_tg", None) or "").strip()) or getattr(bank, "required_screens_tg", None) is not None
+
+    def _has_legacy(bank) -> bool:
+        return bool((getattr(bank, "instructions", None) or "").strip()) or getattr(bank, "required_screens", None) is not None
+
+    if src == "FB":
+        picked = [b for b in banks if _has_fb(b) or (_has_legacy(b) and not _has_tg(b))]
+        if picked:
+            return picked
+        return [b for b in banks if _has_fb(b) or not _has_tg(b)]
+
+    picked = [b for b in banks if _has_tg(b) or (_has_legacy(b) and not _has_fb(b))]
+    if picked:
+        return picked
+    return [b for b in banks if _has_tg(b) or not _has_fb(b)]
+
+
+def _bank_items_with_source(banks: list, source: str | None) -> list[tuple[int, str]]:
+    src = (source or "TG").upper()
+    suffix = "FB" if src == "FB" else "TG"
+    out: list[tuple[int, str]] = []
+    for b in banks:
+        nm = str(getattr(b, "name", "") or "").strip()
+        if not nm:
+            continue
+        out.append((int(b.id), f"{nm} ({suffix})"))
+    return out
+
 router = Router(name="wictory")
 router.message.filter(GroupMessageFilter())
 
@@ -166,8 +203,8 @@ async def wictory_pick_source(cq: CallbackQuery, session: AsyncSession, state: F
     if src not in {"TG", "FB"}:
         await cq.answer("Некорректный источник", show_alert=True)
         return
-    banks = await list_banks(session)
-    items = [(int(b.id), b.name) for b in banks]
+    banks = await _list_banks_for_source(session, src)
+    items = _bank_items_with_source(banks, src)
     await state.set_state(WictoryStates.pick_bank)
     await state.update_data(resource_source=src)
     await cq.answer()
@@ -313,8 +350,9 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
     action = (cq.data or "").split(":")[-1]
     data = await state.get_data()
     if action == "bank":
-        banks = await list_banks(session)
-        items = [(int(b.id), b.name) for b in banks]
+        src = str(data.get("resource_source") or "TG")
+        banks = await _list_banks_for_source(session, src)
+        items = _bank_items_with_source(banks, src)
         await state.set_state(WictoryStates.pick_bank)
         await cq.answer()
         if cq.message:
