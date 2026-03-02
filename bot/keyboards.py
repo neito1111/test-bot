@@ -1043,6 +1043,15 @@ def kb_wictory_main_inline() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def kb_wictory_pick_source(*, back_cb: str = "wictory:home") -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="TG", callback_data="wictory:src:TG")
+    b.button(text="FB", callback_data="wictory:src:FB")
+    b.button(text="⬅️ Назад", callback_data=back_cb)
+    b.adjust(2, 1)
+    return b.as_markup()
+
+
 def kb_wictory_banks(items: list[tuple[int, str]], *, back_cb: str = "wictory:home") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for bank_id, name in items[:50]:

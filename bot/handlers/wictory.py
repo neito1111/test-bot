@@ -12,6 +12,7 @@ from bot.keyboards import (
     kb_wictory_invalid_actions,
     kb_wictory_invalid_list,
     kb_wictory_main_inline,
+    kb_wictory_pick_source,
     kb_wictory_preview,
 )
 from bot.middlewares import GroupMessageFilter
@@ -48,6 +49,7 @@ def _render_preview(data: dict) -> str:
     lines = [
         "<b>Готовый запрос</b>",
         "",
+        f"Источник: <b>{data.get('resource_source') or 'TG'}</b>",
         f"Тип: <b>{type_ru}</b>",
         f"Банк: <b>{bank_name}</b>",
     ]
@@ -109,15 +111,9 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
         return
 
     if stage == "bank":
-        banks = await list_banks(session)
-        items = [(int(b.id), b.name) for b in banks]
-        await state.set_state(WictoryStates.pick_bank)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text(
-                "Выберите банк:",
-                reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"),
-            )
+            await cq.message.edit_text("Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
         return
 
     if stage == "upload":
@@ -154,14 +150,29 @@ async def wictory_add_start(cq: CallbackQuery, session: AsyncSession, state: FSM
     if not user:
         return
     resource_type = (cq.data or "").split(":")[-1]
-    banks = await list_banks(session)
-    items = [(int(b.id), b.name) for b in banks]
     await state.clear()
-    await state.set_state(WictoryStates.pick_bank)
     await state.update_data(resource_type=resource_type)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Выберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
+        await cq.message.edit_text("Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
+
+
+@router.callback_query(F.data.startswith("wictory:src:"))
+async def wictory_pick_source(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    src = (cq.data or "").split(":")[-1].upper()
+    if src not in {"TG", "FB"}:
+        await cq.answer("Некорректный источник", show_alert=True)
+        return
+    banks = await list_banks(session)
+    items = [(int(b.id), b.name) for b in banks]
+    await state.set_state(WictoryStates.pick_bank)
+    await state.update_data(resource_source=src)
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text(f"Источник: <b>{src}</b>\nВыберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
 
 
 @router.callback_query(WictoryStates.pick_bank, F.data.startswith("wictory:bank:"))
@@ -354,7 +365,7 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
         return
     await create_resource_pool_item(
         session,
-        source=(getattr(user, "manager_source", None) or "TG"),
+        source=(data.get("resource_source") or getattr(user, "manager_source", None) or "TG"),
         bank_id=int(data["bank_id"]),
         resource_type=resource_type,
         text_data=data.get("text_data"),
