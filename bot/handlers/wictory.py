@@ -33,17 +33,30 @@ router.message.filter(GroupMessageFilter())
 
 
 def _render_preview(data: dict) -> str:
-    rtype = data.get("resource_type")
+    rtype = str(data.get("resource_type") or "")
     bank_name = data.get("bank_name") or "—"
-    text_data = data.get("text_data") or "—"
+    link = data.get("text_data") or "—"
     screens = data.get("screenshots") or []
-    return (
-        "<b>Готовый запрос</b>\n\n"
-        f"Тип: <b>{rtype}</b>\n"
-        f"Банк: <b>{bank_name}</b>\n"
-        f"Данные: <code>{text_data}</code>\n"
-        f"Скриншотов: <b>{len(screens)}</b>"
-    )
+
+    type_ru = {
+        "link": "Ссылка",
+        "esim": "Esim",
+        "link_esim": "Ссылка + Esim",
+    }.get(rtype, rtype or "—")
+
+    lines = [
+        "<b>Готовый запрос</b>",
+        "",
+        f"Тип: <b>{type_ru}</b>",
+        f"Банк: <b>{bank_name}</b>",
+    ]
+
+    if rtype in {"link", "link_esim"}:
+        lines.append(f"Ссылка: <code>{link}</code>")
+    if rtype in {"esim", "link_esim"}:
+        lines.append(f"Файлов Esim: <b>{len(screens)}</b>")
+
+    return "\n".join(lines)
 
 
 async def _wictory_guard(cq_or_msg: CallbackQuery | Message, session: AsyncSession):
@@ -100,12 +113,12 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
         await state.set_state(WictoryStates.upload_screenshot)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text("Отправьте скриншот")
+            await cq.message.edit_text("Отправьте файл Esim (фото/док/видео), до 10 шт., затем напишите 'Готово'")
         return
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Введите нужные данные")
+        await cq.message.edit_text("Введите ссылку")
 
 
 @router.message(WictoryStates.upload_screenshot, F.photo | F.document | F.video)
@@ -151,8 +164,16 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
         await state.clear()
         await message.answer("Медиа обновлены", reply_markup=kb_wictory_main_inline())
         return
+
+    rtype = str(data.get("resource_type") or "")
+    if rtype == "esim":
+        await state.set_state(WictoryStates.preview)
+        data = await state.get_data()
+        await message.answer(_render_preview(data), reply_markup=kb_wictory_preview())
+        return
+
     await state.set_state(WictoryStates.enter_data)
-    await message.answer("Введите нужные данные")
+    await message.answer("Введите ссылку")
 
 
 @router.message(WictoryStates.enter_data, F.text)
@@ -163,7 +184,7 @@ async def wictory_enter_data(message: Message, session: AsyncSession, state: FSM
     data = await state.get_data()
     txt = (message.text or "").strip()
     if data.get("invalid_edit_mode") == "data" and data.get("invalid_item_id"):
-        it = await wictory_update_invalid_item(
+        await wictory_update_invalid_item(
             session,
             item_id=int(data.get("invalid_item_id")),
             wictory_user_id=int(user.id),
@@ -172,6 +193,13 @@ async def wictory_enter_data(message: Message, session: AsyncSession, state: FSM
         await state.clear()
         await message.answer("Данные обновлены", reply_markup=kb_wictory_main_inline())
         return
+
+    rtype = str(data.get("resource_type") or "")
+    if rtype in {"link", "link_esim"}:
+        if not txt:
+            await message.answer("Ссылка обязательна. Введите ссылку.")
+            return
+
     await state.update_data(text_data=txt)
     await state.set_state(WictoryStates.preview)
     data = await state.get_data()
