@@ -5581,10 +5581,8 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
     if wictory_owner and wictory_owner.role == UserRole.WICTORY:
         try:
             caption = (
-                f"✅ Ссылка/Esim использована\n"
-                f"Форма #{form_id}\n"
-                f"Банк: {form.bank_name if form else '—'}\n"
-                f"Ссылка/Esim: {it.text_data or '—'}"
+                f"✅ Esim подтянуто\n"
+                f"Форма #{form_id} · {form.bank_name if form else '—'}"
             )
             shots = list(getattr(it, "screenshots", None) or [])
             if shots:
