@@ -736,19 +736,35 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
     can_media = can_edit_by_status and getattr(it.type, "value", "") in {"esim", "link_esim"}
     can_delete = st_val != "assigned"
     can_edit_meta = can_edit_by_status
+    kb = kb_wictory_item_actions(
+        item_id,
+        can_edit_data=can_data,
+        can_edit_media=can_media,
+        can_delete=can_delete,
+        can_edit_meta=can_edit_meta,
+    )
     await state.update_data(item_edit_id=item_id)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(
-            txt,
-            reply_markup=kb_wictory_item_actions(
-                item_id,
-                can_edit_data=can_data,
-                can_edit_media=can_media,
-                can_delete=can_delete,
-                can_edit_meta=can_edit_meta,
-            ),
-        )
+        shots = list(it.screenshots or [])
+        if shots:
+            kind, fid = unpack_media_item(str(shots[0]))
+            try:
+                if kind == "photo":
+                    await cq.message.edit_media(InputMediaPhoto(media=fid, caption=txt, parse_mode="HTML"), reply_markup=kb)
+                elif kind == "video":
+                    await cq.message.edit_media(InputMediaVideo(media=fid, caption=txt, parse_mode="HTML"), reply_markup=kb)
+                else:
+                    await cq.message.edit_media(InputMediaDocument(media=fid, caption=txt, parse_mode="HTML"), reply_markup=kb)
+            except TelegramBadRequest:
+                if kind == "photo":
+                    await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
+                elif kind == "video":
+                    await cq.message.answer_video(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
+                else:
+                    await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
+        else:
+            await cq.message.edit_text(txt, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_data:"))
