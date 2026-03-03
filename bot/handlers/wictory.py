@@ -114,12 +114,21 @@ async def _send_preview_message(msg: Message, data: dict) -> None:
         await msg.answer_document(fid, caption=text, parse_mode="HTML", reply_markup=kb_wictory_preview())
 
 
+async def _safe_edit_or_answer(cq: CallbackQuery, text: str, reply_markup=None) -> None:
+    if not cq.message:
+        return
+    try:
+        await cq.message.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest:
+        await cq.message.answer(text, reply_markup=reply_markup)
+
+
 async def _show_preview_from_callback(cq: CallbackQuery, data: dict) -> None:
     if not cq.message:
         return
     shots = list(data.get("screenshots") or [])
     if not shots:
-        await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+        await _safe_edit_or_answer(cq, _render_preview(data), reply_markup=kb_wictory_preview())
         return
 
     kind, fid = unpack_media_item(str(shots[0]))
@@ -192,7 +201,7 @@ async def wictory_home(cq: CallbackQuery, session: AsyncSession, state: FSMConte
     await cq.answer()
     if cq.message:
         try:
-            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+            await _safe_edit_or_answer(cq, "Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
         except TelegramBadRequest:
             await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
@@ -206,7 +215,7 @@ async def wictory_cancel_create(cq: CallbackQuery, session: AsyncSession, state:
     await cq.answer("Создание отменено")
     if cq.message:
         try:
-            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+            await _safe_edit_or_answer(cq, "Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
         except TelegramBadRequest:
             await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
@@ -225,7 +234,7 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
         await cq.answer()
         if cq.message:
             try:
-                await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+                await _safe_edit_or_answer(cq, "Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
             except TelegramBadRequest:
                 await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
         return
@@ -233,14 +242,14 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
     if stage == "bank":
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text("Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
+            await _safe_edit_or_answer(cq, "Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
         return
 
     if stage == "upload":
         await state.set_state(WictoryStates.upload_screenshot)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text(
+            await _safe_edit_or_answer(cq, 
                 "Отправьте файл Esim (фото/док/видео), до 10 шт., затем нажмите '✅ Готово' или напишите 'Готово'",
                 reply_markup=kb_wictory_upload_actions(back_cb="wictory:back:bank"),
             )
@@ -250,7 +259,7 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
         await state.set_state(WictoryStates.enter_data)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text(
+            await _safe_edit_or_answer(cq, 
                 "Введите ссылку",
                 reply_markup=kb_wictory_back_cancel(back_cb=("wictory:back:upload" if rtype == "link_esim" else "wictory:back:bank")),
             )
@@ -274,7 +283,7 @@ async def wictory_add_start(cq: CallbackQuery, session: AsyncSession, state: FSM
     await state.update_data(resource_type=resource_type)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
+        await _safe_edit_or_answer(cq, "Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
 
 
 @router.callback_query(F.data.startswith("wictory:src:"))
@@ -292,7 +301,7 @@ async def wictory_pick_source(cq: CallbackQuery, session: AsyncSession, state: F
     await state.update_data(resource_source=src)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(f"Источник: <b>{src}</b>\nВыберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
+        await _safe_edit_or_answer(cq, f"Источник: <b>{src}</b>\nВыберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
 
 
 @router.callback_query(WictoryStates.pick_bank, F.data.startswith("wictory:bank:"))
@@ -312,7 +321,7 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
         await state.set_state(WictoryStates.upload_screenshot)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text(
+            await _safe_edit_or_answer(cq, 
                 "Отправьте файл Esim (фото/док/видео), до 10 шт., затем нажмите '✅ Готово' или напишите 'Готово'",
                 reply_markup=kb_wictory_upload_actions(back_cb="wictory:back:bank"),
             )
@@ -320,7 +329,7 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
+        await _safe_edit_or_answer(cq, "Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
 
 
 @router.message(WictoryStates.upload_screenshot, F.photo | F.document | F.video)
@@ -373,7 +382,7 @@ async def wictory_upload_screenshot_done_cb(cq: CallbackQuery, session: AsyncSes
         await state.clear()
         await cq.answer("Медиа обновлены")
         if cq.message:
-            await cq.message.edit_text("Медиа обновлены", reply_markup=kb_wictory_main_inline())
+            await _safe_edit_or_answer(cq, "Медиа обновлены", reply_markup=kb_wictory_main_inline())
         return
 
     if data.get("item_edit_mode") == "media" and data.get("item_edit_id"):
@@ -386,7 +395,7 @@ async def wictory_upload_screenshot_done_cb(cq: CallbackQuery, session: AsyncSes
         await state.clear()
         await cq.answer("Esim обновлены")
         if cq.message:
-            await cq.message.edit_text("Esim обновлены", reply_markup=kb_wictory_main_inline())
+            await _safe_edit_or_answer(cq, "Esim обновлены", reply_markup=kb_wictory_main_inline())
         return
 
     rtype = str(data.get("resource_type") or "")
@@ -401,7 +410,7 @@ async def wictory_upload_screenshot_done_cb(cq: CallbackQuery, session: AsyncSes
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
+        await _safe_edit_or_answer(cq, "Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
 
 
 @router.message(WictoryStates.upload_screenshot, F.text)
@@ -505,7 +514,10 @@ async def wictory_edit(cq: CallbackQuery, session: AsyncSession, state: FSMConte
     await state.set_state(WictoryStates.edit_pick)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_reply_markup(reply_markup=kb_wictory_edit())
+        try:
+            await cq.message.edit_reply_markup(reply_markup=kb_wictory_edit())
+        except TelegramBadRequest:
+            await _safe_edit_or_answer(cq, "Что изменить?", reply_markup=kb_wictory_edit())
 
 
 @router.callback_query(WictoryStates.edit_pick, F.data.startswith("wictory:edit:"))
@@ -601,9 +613,9 @@ async def wictory_invalid_list(cq: CallbackQuery, session: AsyncSession) -> None
     await cq.answer()
     if cq.message:
         if not packed:
-            await cq.message.edit_text("Невалидных записей нет", reply_markup=kb_wictory_main_inline())
+            await _safe_edit_or_answer(cq, "Невалидных записей нет", reply_markup=kb_wictory_main_inline())
             return
-        await cq.message.edit_text("Невалидные записи:", reply_markup=kb_wictory_invalid_list(packed))
+        await _safe_edit_or_answer(cq, "Невалидные записи:", reply_markup=kb_wictory_invalid_list(packed))
 
 
 @router.callback_query(F.data.startswith("wictory:invalid:open:"))
@@ -627,7 +639,7 @@ async def wictory_invalid_open(cq: CallbackQuery, session: AsyncSession, state: 
     await state.update_data(invalid_item_id=item_id)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(txt, reply_markup=kb_wictory_invalid_actions(item_id))
+        await _safe_edit_or_answer(cq, txt, reply_markup=kb_wictory_invalid_actions(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:invalid:edit_data:"))
@@ -640,7 +652,7 @@ async def wictory_invalid_edit_data_start(cq: CallbackQuery, session: AsyncSessi
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Введите новые данные")
+        await _safe_edit_or_answer(cq, "Введите новые данные")
 
 
 @router.callback_query(F.data.startswith("wictory:invalid:edit_media:"))
@@ -653,7 +665,7 @@ async def wictory_invalid_edit_media_start(cq: CallbackQuery, session: AsyncSess
     await state.set_state(WictoryStates.upload_screenshot)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Отправьте файлы (до 10), затем напишите 'Готово'")
+        await _safe_edit_or_answer(cq, "Отправьте файлы (до 10), затем напишите 'Готово'")
 
 
 @router.callback_query(F.data.startswith("wictory:invalid:return:"))
@@ -665,7 +677,7 @@ async def wictory_invalid_return(cq: CallbackQuery, session: AsyncSession) -> No
     it = await wictory_update_invalid_item(session, item_id=item_id, wictory_user_id=int(user.id), set_free=True)
     await cq.answer("Возвращено в общий пул" if it else "Не удалось", show_alert=not bool(it))
     if cq.message:
-        await cq.message.edit_text("Запись возвращена в общий пул", reply_markup=kb_wictory_main_inline())
+        await _safe_edit_or_answer(cq, "Запись возвращена в общий пул", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:items:list")
@@ -687,7 +699,7 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
     if cq.message:
         if not packed:
             try:
-                await cq.message.edit_text("У вас пока нет записей", reply_markup=kb_wictory_main_inline())
+                await _safe_edit_or_answer(cq, "У вас пока нет записей", reply_markup=kb_wictory_main_inline())
             except TelegramBadRequest:
                 await cq.message.answer("У вас пока нет записей", reply_markup=kb_wictory_main_inline())
             return
@@ -702,7 +714,7 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
             "</blockquote>"
         )
         try:
-            await cq.message.edit_text(legend, reply_markup=kb_wictory_items_list(packed))
+            await _safe_edit_or_answer(cq, legend, reply_markup=kb_wictory_items_list(packed))
         except TelegramBadRequest:
             await cq.message.answer(legend, reply_markup=kb_wictory_items_list(packed))
 
@@ -771,7 +783,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
             else:
                 await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
         else:
-            await cq.message.edit_text(txt, reply_markup=kb)
+            await _safe_edit_or_answer(cq, txt, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_data:"))
@@ -791,7 +803,7 @@ async def wictory_item_edit_data_start(cq: CallbackQuery, session: AsyncSession,
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Введите новую ссылку", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
+        await _safe_edit_or_answer(cq, "Введите новую ссылку", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_media:"))
@@ -811,7 +823,7 @@ async def wictory_item_edit_media_start(cq: CallbackQuery, session: AsyncSession
     await state.set_state(WictoryStates.upload_screenshot)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Отправьте новые файлы Esim (до 10), затем напишите 'Готово'", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
+        await _safe_edit_or_answer(cq, "Отправьте новые файлы Esim (до 10), затем напишите 'Готово'", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_source:"))
@@ -829,7 +841,7 @@ async def wictory_item_edit_source_start(cq: CallbackQuery, session: AsyncSessio
         return
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Выберите новый источник:", reply_markup=kb_wictory_item_pick_source(item_id))
+        await _safe_edit_or_answer(cq, "Выберите новый источник:", reply_markup=kb_wictory_item_pick_source(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:set_source:"))
@@ -856,7 +868,7 @@ async def wictory_item_set_source(cq: CallbackQuery, session: AsyncSession) -> N
     await wictory_update_item(session, item_id=item_id, wictory_user_id=int(user.id), source=src)
     await cq.answer("Источник обновлён")
     if cq.message:
-        await cq.message.edit_text("Источник обновлён", reply_markup=kb_wictory_main_inline())
+        await _safe_edit_or_answer(cq, "Источник обновлён", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_bank:"))
@@ -876,7 +888,7 @@ async def wictory_item_edit_bank_start(cq: CallbackQuery, session: AsyncSession)
     items = _bank_items_with_source(banks, getattr(it, "source", None))
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Выберите новый банк:", reply_markup=kb_wictory_item_banks(items, item_id=item_id))
+        await _safe_edit_or_answer(cq, "Выберите новый банк:", reply_markup=kb_wictory_item_banks(items, item_id=item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:set_bank:"))
@@ -900,7 +912,7 @@ async def wictory_item_set_bank(cq: CallbackQuery, session: AsyncSession) -> Non
     await wictory_update_item(session, item_id=item_id, wictory_user_id=int(user.id), bank_id=bank_id)
     await cq.answer("Банк обновлён")
     if cq.message:
-        await cq.message.edit_text("Банк обновлён", reply_markup=kb_wictory_main_inline())
+        await _safe_edit_or_answer(cq, "Банк обновлён", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data.startswith("wictory:item:delete:"))
@@ -912,7 +924,7 @@ async def wictory_item_delete(cq: CallbackQuery, session: AsyncSession) -> None:
     ok = await wictory_delete_item(session, item_id=item_id, wictory_user_id=int(user.id))
     await cq.answer("Удалено" if ok else "Нельзя удалить (в работе или не найдено)", show_alert=not ok)
     if cq.message:
-        await cq.message.edit_text("Готово", reply_markup=kb_wictory_main_inline())
+        await _safe_edit_or_answer(cq, "Готово", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:item:cancel_edit")
@@ -924,7 +936,7 @@ async def wictory_item_cancel_edit(cq: CallbackQuery, session: AsyncSession, sta
     await cq.answer("Редактирование отменено")
     if cq.message:
         try:
-            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+            await _safe_edit_or_answer(cq, "Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
         except TelegramBadRequest:
             await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
@@ -1019,7 +1031,7 @@ async def wictory_stats(cq: CallbackQuery, session: AsyncSession, state: FSMCont
     txt = await _render_stats_text(session, data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(txt, reply_markup=kb_wictory_stats_main())
+        await _safe_edit_or_answer(cq, txt, reply_markup=kb_wictory_stats_main())
 
 
 def _filters_summary_text(data: dict) -> str:
@@ -1044,7 +1056,7 @@ async def wictory_stats_filters(cq: CallbackQuery, session: AsyncSession, state:
         return
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(_filters_summary_text(await state.get_data()), reply_markup=kb_wictory_stats_filters_main())
+        await _safe_edit_or_answer(cq, _filters_summary_text(await state.get_data()), reply_markup=kb_wictory_stats_filters_main())
 
 
 @router.callback_query(F.data == "wictory:stats:filters:source")
@@ -1056,7 +1068,7 @@ async def wictory_stats_filters_source(cq: CallbackQuery, session: AsyncSession,
     src, _, _, _, _ = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_source(src))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_source(src))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:status")
@@ -1068,7 +1080,7 @@ async def wictory_stats_filters_status(cq: CallbackQuery, session: AsyncSession,
     _, _, _, statuses, _ = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_status(statuses))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_status(statuses))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:type")
@@ -1080,7 +1092,7 @@ async def wictory_stats_filters_type(cq: CallbackQuery, session: AsyncSession, s
     _, _, _, _, types = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_type(types))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_type(types))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:date")
@@ -1092,7 +1104,7 @@ async def wictory_stats_filters_date(cq: CallbackQuery, session: AsyncSession, s
     _, _, date_mode, _, _ = _read_stats_filters(data)
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_date(date_mode))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_date(date_mode))
 
 
 @router.callback_query(F.data == "wictory:stats:filters:bank")
@@ -1106,7 +1118,7 @@ async def wictory_stats_filters_bank(cq: CallbackQuery, session: AsyncSession, s
     items = [(int(b.id), b.name) for b in banks]
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:source:"))
@@ -1125,7 +1137,7 @@ async def wictory_stats_toggle_source(cq: CallbackQuery, session: AsyncSession, 
     await cq.answer("Обновлено")
     if cq.message:
         data = await state.get_data()
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_source(src))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_source(src))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:status:"))
@@ -1144,7 +1156,7 @@ async def wictory_stats_toggle_status(cq: CallbackQuery, session: AsyncSession, 
     await cq.answer("Обновлено")
     if cq.message:
         data = await state.get_data()
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_status(statuses))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_status(statuses))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:type:"))
@@ -1163,7 +1175,7 @@ async def wictory_stats_toggle_type(cq: CallbackQuery, session: AsyncSession, st
     await cq.answer("Обновлено")
     if cq.message:
         data = await state.get_data()
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_type(types))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_type(types))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:toggle:bank:"))
@@ -1184,7 +1196,7 @@ async def wictory_stats_toggle_bank(cq: CallbackQuery, session: AsyncSession, st
     await cq.answer("Обновлено")
     if cq.message:
         data = await state.get_data()
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_bank(items, bank_ids))
 
 
 @router.callback_query(F.data.startswith("wictory:stats:set_date:"))
@@ -1200,7 +1212,7 @@ async def wictory_stats_set_date(cq: CallbackQuery, session: AsyncSession, state
     await cq.answer("Дата обновлена")
     if cq.message:
         data = await state.get_data()
-        await cq.message.edit_text(_filters_summary_text(data), reply_markup=kb_wictory_stats_filter_date(mode))
+        await _safe_edit_or_answer(cq, _filters_summary_text(data), reply_markup=kb_wictory_stats_filter_date(mode))
 
 
 @router.callback_query(F.data == "wictory:stats:reset")
@@ -1211,7 +1223,7 @@ async def wictory_stats_reset(cq: CallbackQuery, session: AsyncSession, state: F
     await state.update_data(stats_sources=[], stats_bank_ids=[], stats_date="all", stats_statuses=[], stats_types=[])
     await cq.answer("Фильтры сброшены")
     if cq.message:
-        await cq.message.edit_text(_filters_summary_text(await state.get_data()), reply_markup=kb_wictory_stats_filters_main())
+        await _safe_edit_or_answer(cq, _filters_summary_text(await state.get_data()), reply_markup=kb_wictory_stats_filters_main())
 
 
 @router.callback_query(F.data == "wictory:stats:apply")
@@ -1222,4 +1234,4 @@ async def wictory_stats_apply(cq: CallbackQuery, session: AsyncSession, state: F
     txt = await _render_stats_text(session, await state.get_data())
     await cq.answer("Готово")
     if cq.message:
-        await cq.message.edit_text(txt, reply_markup=kb_wictory_stats_main())
+        await _safe_edit_or_answer(cq, txt, reply_markup=kb_wictory_stats_main())
