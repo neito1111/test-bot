@@ -46,7 +46,7 @@ from bot.repositories import (
     wictory_update_item,
 )
 from bot.states import WictoryStates
-from bot.utils import pack_media_item
+from bot.utils import pack_media_item, unpack_media_item
 
 
 async def _list_banks_for_source(session: AsyncSession, source: str | None) -> list:
@@ -87,6 +87,25 @@ def _bank_items_with_source(banks: list, source: str | None) -> list[tuple[int, 
 
 router = Router(name="wictory")
 router.message.filter(GroupMessageFilter())
+
+
+async def _send_preview_message(msg: Message, data: dict) -> None:
+    text = _render_preview(data)
+    shots = list(data.get("screenshots") or [])
+    if not shots:
+        await msg.answer(text, reply_markup=kb_wictory_preview())
+        return
+
+    kind, fid = unpack_media_item(str(shots[0]))
+    if len(shots) > 1:
+        text += f"\nДоп. файлов: <b>{len(shots) - 1}</b>"
+
+    if kind == "photo":
+        await msg.answer_photo(fid, caption=text, parse_mode="HTML", reply_markup=kb_wictory_preview())
+    elif kind == "video":
+        await msg.answer_video(fid, caption=text, parse_mode="HTML", reply_markup=kb_wictory_preview())
+    else:
+        await msg.answer_document(fid, caption=text, parse_mode="HTML", reply_markup=kb_wictory_preview())
 
 
 def _status_icon(status: str) -> str:
@@ -203,9 +222,9 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
 
     if stage == "preview":
         await state.set_state(WictoryStates.preview)
-        await cq.answer()
+        await cq.answer("Превью отправлено ниже")
         if cq.message:
-            await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+            await _send_preview_message(cq.message, data)
         return
 
 
@@ -338,9 +357,9 @@ async def wictory_upload_screenshot_done_cb(cq: CallbackQuery, session: AsyncSes
     if rtype == "esim":
         await state.set_state(WictoryStates.preview)
         data = await state.get_data()
-        await cq.answer()
+        await cq.answer("Превью отправлено ниже")
         if cq.message:
-            await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+            await _send_preview_message(cq.message, data)
         return
 
     await state.set_state(WictoryStates.enter_data)
@@ -394,7 +413,7 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
     if rtype == "esim":
         await state.set_state(WictoryStates.preview)
         data = await state.get_data()
-        await message.answer(_render_preview(data), reply_markup=kb_wictory_preview())
+        await _send_preview_message(message, data)
         return
 
     await state.set_state(WictoryStates.enter_data)
@@ -439,7 +458,7 @@ async def wictory_enter_data(message: Message, session: AsyncSession, state: FSM
     await state.update_data(text_data=txt)
     await state.set_state(WictoryStates.preview)
     data = await state.get_data()
-    await message.answer(_render_preview(data), reply_markup=kb_wictory_preview())
+    await _send_preview_message(message, data)
 
 
 @router.callback_query(WictoryStates.preview, F.data == "wictory:edit")
@@ -482,9 +501,9 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
             await cq.message.edit_text("Отправьте скриншот")
         return
     await state.set_state(WictoryStates.preview)
-    await cq.answer()
+    await cq.answer("Превью отправлено ниже")
     if cq.message:
-        await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+        await _send_preview_message(cq.message, data)
 
 
 @router.callback_query(F.data == "wictory:preview")
@@ -494,9 +513,9 @@ async def wictory_preview_show(cq: CallbackQuery, session: AsyncSession, state: 
         return
     data = await state.get_data()
     await state.set_state(WictoryStates.preview)
-    await cq.answer()
+    await cq.answer("Превью отправлено ниже")
     if cq.message:
-        await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+        await _send_preview_message(cq.message, data)
 
 
 @router.callback_query(WictoryStates.preview, F.data == "wictory:confirm")
