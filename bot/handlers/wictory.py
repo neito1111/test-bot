@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InputMediaDocument, InputMediaPhoto, InputMediaVideo, Message
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.keyboards import (
@@ -89,23 +90,49 @@ router = Router(name="wictory")
 router.message.filter(GroupMessageFilter())
 
 
-async def _send_preview_message(msg: Message, data: dict) -> None:
+def _preview_caption(data: dict) -> str:
     text = _render_preview(data)
+    shots = list(data.get("screenshots") or [])
+    if len(shots) > 1:
+        text += f"\nДоп. файлов: <b>{len(shots) - 1}</b>"
+    return text
+
+
+async def _send_preview_message(msg: Message, data: dict) -> None:
+    text = _preview_caption(data)
     shots = list(data.get("screenshots") or [])
     if not shots:
         await msg.answer(text, reply_markup=kb_wictory_preview())
         return
 
     kind, fid = unpack_media_item(str(shots[0]))
-    if len(shots) > 1:
-        text += f"\nДоп. файлов: <b>{len(shots) - 1}</b>"
-
     if kind == "photo":
         await msg.answer_photo(fid, caption=text, parse_mode="HTML", reply_markup=kb_wictory_preview())
     elif kind == "video":
         await msg.answer_video(fid, caption=text, parse_mode="HTML", reply_markup=kb_wictory_preview())
     else:
         await msg.answer_document(fid, caption=text, parse_mode="HTML", reply_markup=kb_wictory_preview())
+
+
+async def _show_preview_from_callback(cq: CallbackQuery, data: dict) -> None:
+    if not cq.message:
+        return
+    shots = list(data.get("screenshots") or [])
+    if not shots:
+        await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+        return
+
+    kind, fid = unpack_media_item(str(shots[0]))
+    caption = _preview_caption(data)
+    try:
+        if kind == "photo":
+            await cq.message.edit_media(InputMediaPhoto(media=fid, caption=caption, parse_mode="HTML"), reply_markup=kb_wictory_preview())
+        elif kind == "video":
+            await cq.message.edit_media(InputMediaVideo(media=fid, caption=caption, parse_mode="HTML"), reply_markup=kb_wictory_preview())
+        else:
+            await cq.message.edit_media(InputMediaDocument(media=fid, caption=caption, parse_mode="HTML"), reply_markup=kb_wictory_preview())
+    except TelegramBadRequest:
+        await _send_preview_message(cq.message, data)
 
 
 def _status_icon(status: str) -> str:
@@ -224,7 +251,7 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
         await state.set_state(WictoryStates.preview)
         await cq.answer("Превью отправлено ниже")
         if cq.message:
-            await _send_preview_message(cq.message, data)
+            await _show_preview_from_callback(cq, data)
         return
 
 
@@ -359,7 +386,7 @@ async def wictory_upload_screenshot_done_cb(cq: CallbackQuery, session: AsyncSes
         data = await state.get_data()
         await cq.answer("Превью отправлено ниже")
         if cq.message:
-            await _send_preview_message(cq.message, data)
+            await _show_preview_from_callback(cq, data)
         return
 
     await state.set_state(WictoryStates.enter_data)
@@ -503,7 +530,7 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
     await state.set_state(WictoryStates.preview)
     await cq.answer("Превью отправлено ниже")
     if cq.message:
-        await _send_preview_message(cq.message, data)
+        await _show_preview_from_callback(cq, data)
 
 
 @router.callback_query(F.data == "wictory:preview")
@@ -515,7 +542,7 @@ async def wictory_preview_show(cq: CallbackQuery, session: AsyncSession, state: 
     await state.set_state(WictoryStates.preview)
     await cq.answer("Превью отправлено ниже")
     if cq.message:
-        await _send_preview_message(cq.message, data)
+        await _show_preview_from_callback(cq, data)
 
 
 @router.callback_query(WictoryStates.preview, F.data == "wictory:confirm")
