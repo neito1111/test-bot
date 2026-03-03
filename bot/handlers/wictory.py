@@ -191,7 +191,10 @@ async def wictory_home(cq: CallbackQuery, session: AsyncSession, state: FSMConte
     await state.clear()
     await cq.answer()
     if cq.message:
-        await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        try:
+            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        except TelegramBadRequest:
+            await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:cancel_create")
@@ -202,7 +205,10 @@ async def wictory_cancel_create(cq: CallbackQuery, session: AsyncSession, state:
     await state.clear()
     await cq.answer("Создание отменено")
     if cq.message:
-        await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        try:
+            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        except TelegramBadRequest:
+            await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data.startswith("wictory:back:"))
@@ -218,7 +224,10 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
         await state.clear()
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+            try:
+                await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+            except TelegramBadRequest:
+                await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
         return
 
     if stage == "bank":
@@ -677,7 +686,10 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
     await cq.answer()
     if cq.message:
         if not packed:
-            await cq.message.edit_text("У вас пока нет записей", reply_markup=kb_wictory_main_inline())
+            try:
+                await cq.message.edit_text("У вас пока нет записей", reply_markup=kb_wictory_main_inline())
+            except TelegramBadRequest:
+                await cq.message.answer("У вас пока нет записей", reply_markup=kb_wictory_main_inline())
             return
         legend = (
             "<b>Мои записи</b>\n"
@@ -689,7 +701,10 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
             "🔴 INVALID — помечена невалидной"
             "</blockquote>"
         )
-        await cq.message.edit_text(legend, reply_markup=kb_wictory_items_list(packed))
+        try:
+            await cq.message.edit_text(legend, reply_markup=kb_wictory_items_list(packed))
+        except TelegramBadRequest:
+            await cq.message.answer(legend, reply_markup=kb_wictory_items_list(packed))
 
 
 @router.callback_query(F.data == "wictory:items:legend")
@@ -908,7 +923,10 @@ async def wictory_item_cancel_edit(cq: CallbackQuery, session: AsyncSession, sta
     await state.clear()
     await cq.answer("Редактирование отменено")
     if cq.message:
-        await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        try:
+            await cq.message.edit_text("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        except TelegramBadRequest:
+            await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
 def _read_stats_filters(data: dict) -> tuple[set[str], set[int], str, set[str], set[str]]:
