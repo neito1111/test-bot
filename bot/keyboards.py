@@ -1248,6 +1248,18 @@ def kb_wictory_item_banks(items: list[tuple[int, str]], *, item_id: int) -> Inli
     return b.as_markup()
 
 
+def kb_wictory_item_media_manage(item_id: int, files_count: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for i in range(max(0, int(files_count))):
+        b.button(text=f"Заменить файл {i+1}", callback_data=f"wictory:item:media_pick:{int(item_id)}:{i}")
+    b.button(text="➕ Добавить файл", callback_data=f"wictory:item:media_add:{int(item_id)}")
+    b.button(text="✅ Готово", callback_data="wictory:upload_done")
+    b.button(text="⬅️ Назад", callback_data=f"wictory:item:open:{int(item_id)}")
+    b.button(text="❌ Отмена", callback_data="wictory:item:cancel_edit")
+    b.adjust(1)
+    return b.as_markup()
+
+
 def kb_pending_main() -> ReplyKeyboardMarkup:
     b = ReplyKeyboardBuilder()
     b.add(KeyboardButton(text="Запросить доступ"))

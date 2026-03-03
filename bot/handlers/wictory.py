@@ -18,6 +18,7 @@ from bot.keyboards import (
     kb_wictory_item_actions,
     kb_wictory_item_banks,
     kb_wictory_item_edit_back_cancel,
+    kb_wictory_item_media_manage,
     kb_wictory_item_pick_source,
     kb_wictory_items_list,
     kb_wictory_main_inline,
@@ -340,21 +341,39 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
         return
     data = await state.get_data()
     shots: list[str] = list(data.get("screenshots") or [])
+    item_edit_id = data.get("item_edit_id")
+
+    new_item = None
+    if message.photo:
+        new_item = pack_media_item("photo", message.photo[-1].file_id)
+    elif message.document:
+        new_item = pack_media_item("doc", message.document.file_id)
+    elif message.video:
+        new_item = pack_media_item("video", message.video.file_id)
+
+    if data.get("item_edit_mode") == "media" and item_edit_id:
+        replace_index = data.get("replace_index")
+        if replace_index is not None and 0 <= int(replace_index) < len(shots):
+            shots[int(replace_index)] = str(new_item)
+        else:
+            if len(shots) >= 10:
+                await message.answer("Можно добавить максимум 10 файлов.")
+                return
+            shots.append(str(new_item))
+        await state.update_data(screenshots=shots, replace_index=None)
+        await message.answer(
+            f"Готово. Файлов сейчас: {len(shots)}/10",
+            reply_markup=kb_wictory_item_media_manage(int(item_edit_id), len(shots)),
+        )
+        return
+
     if len(shots) >= 10:
         await message.answer("Можно добавить максимум 10 файлов. Напишите 'Готово'.")
         return
-    if message.photo:
-        shots.append(pack_media_item("photo", message.photo[-1].file_id))
-    elif message.document:
-        shots.append(pack_media_item("doc", message.document.file_id))
-    elif message.video:
-        shots.append(pack_media_item("video", message.video.file_id))
+    shots.append(str(new_item))
     await state.update_data(screenshots=shots)
-    item_edit_id = data.get("item_edit_id")
     invalid_item_id = data.get("invalid_item_id")
-    if data.get("item_edit_mode") == "media" and item_edit_id:
-        kb = kb_wictory_item_edit_back_cancel(int(item_edit_id))
-    elif data.get("invalid_edit_mode") == "media" and invalid_item_id:
+    if data.get("invalid_edit_mode") == "media" and invalid_item_id:
         kb = kb_wictory_invalid_edit_back_cancel(int(invalid_item_id))
     else:
         kb = kb_wictory_upload_actions(back_cb="wictory:back:bank")
@@ -430,7 +449,7 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
         item_edit_id = data.get("item_edit_id")
         invalid_item_id = data.get("invalid_item_id")
         if data.get("item_edit_mode") == "media" and item_edit_id:
-            kb = kb_wictory_item_edit_back_cancel(int(item_edit_id))
+            kb = kb_wictory_item_media_manage(int(item_edit_id), len(list(data.get("screenshots") or [])))
         elif data.get("invalid_edit_mode") == "media" and invalid_item_id:
             kb = kb_wictory_invalid_edit_back_cancel(int(invalid_item_id))
         else:
@@ -836,11 +855,58 @@ async def wictory_item_edit_media_start(cq: CallbackQuery, session: AsyncSession
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
         await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
         return
-    await state.update_data(item_edit_id=item_id, item_edit_mode="media", screenshots=[])
+    shots = list(it.screenshots or [])
+    await state.update_data(item_edit_id=item_id, item_edit_mode="media", screenshots=shots, replace_index=None)
     await state.set_state(WictoryStates.upload_screenshot)
     await cq.answer()
     if cq.message:
-        await _safe_edit_or_answer(cq, "Отправьте новые файлы Esim (до 10), затем напишите 'Готово'", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
+        await _safe_edit_or_answer(
+            cq,
+            "Выберите, какой файл заменить, или добавьте новый:",
+            reply_markup=kb_wictory_item_media_manage(item_id, len(shots)),
+        )
+
+
+@router.callback_query(F.data.startswith("wictory:item:media_pick:"))
+async def wictory_item_media_pick(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) < 5:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    item_id = int(parts[3])
+    idx = int(parts[4])
+    data = await state.get_data()
+    shots = list(data.get("screenshots") or [])
+    if idx < 0 or idx >= len(shots):
+        await cq.answer("Некорректный номер файла", show_alert=True)
+        return
+    await state.update_data(item_edit_id=item_id, item_edit_mode="media", replace_index=idx)
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_or_answer(
+            cq,
+            f"Отправьте новый файл для замены #{idx+1} (фото/видео/файл)",
+            reply_markup=kb_wictory_item_edit_back_cancel(item_id),
+        )
+
+
+@router.callback_query(F.data.startswith("wictory:item:media_add:"))
+async def wictory_item_media_add(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    await state.update_data(item_edit_id=item_id, item_edit_mode="media", replace_index=None)
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_or_answer(
+            cq,
+            "Отправьте новый файл для добавления (фото/видео/файл)",
+            reply_markup=kb_wictory_item_edit_back_cancel(item_id),
+        )
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_source:"))
