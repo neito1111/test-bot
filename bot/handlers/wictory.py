@@ -513,13 +513,13 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
         await state.set_state(WictoryStates.pick_bank)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text("Выберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:preview"))
+            await cq.message.answer("Выберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:preview"))
         return
     if action == "data":
         await state.set_state(WictoryStates.enter_data)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text(
+            await cq.message.answer(
                 "Введите нужные данные",
                 reply_markup=kb_wictory_back_cancel(back_cb="wictory:preview"),
             )
@@ -528,7 +528,7 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
         await state.set_state(WictoryStates.upload_screenshot)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text(
+            await cq.message.answer(
                 "Отправьте скриншот",
                 reply_markup=kb_wictory_upload_actions(back_cb="wictory:preview"),
             )
