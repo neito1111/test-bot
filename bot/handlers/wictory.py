@@ -28,6 +28,7 @@ from bot.keyboards import (
     kb_wictory_stats_filter_type,
     kb_wictory_stats_filters_main,
     kb_wictory_stats_main,
+    kb_wictory_upload_actions,
 )
 from bot.middlewares import GroupMessageFilter
 from bot.models import ResourceStatus, UserRole
@@ -185,8 +186,8 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
         await cq.answer()
         if cq.message:
             await cq.message.edit_text(
-                "Отправьте файл Esim (фото/док/видео), до 10 шт., затем напишите 'Готово'",
-                reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+                "Отправьте файл Esim (фото/док/видео), до 10 шт., затем нажмите '✅ Готово' или напишите 'Готово'",
+                reply_markup=kb_wictory_upload_actions(back_cb="wictory:back:bank"),
             )
         return
 
@@ -257,8 +258,8 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
         await cq.answer()
         if cq.message:
             await cq.message.edit_text(
-                "Отправьте файл Esim (фото/док/видео), до 10 шт., затем напишите 'Готово'",
-                reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+                "Отправьте файл Esim (фото/док/видео), до 10 шт., затем нажмите '✅ Готово' или напишите 'Готово'",
+                reply_markup=kb_wictory_upload_actions(back_cb="wictory:back:bank"),
             )
         return
     await state.set_state(WictoryStates.enter_data)
@@ -285,11 +286,67 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
         shots.append(pack_media_item("video", message.video.file_id))
     await state.update_data(screenshots=shots)
     item_edit_id = data.get("item_edit_id")
-    kb = kb_wictory_item_edit_back_cancel(int(item_edit_id)) if data.get("item_edit_mode") == "media" and item_edit_id else kb_wictory_back_cancel(back_cb="wictory:back:bank")
+    kb = kb_wictory_item_edit_back_cancel(int(item_edit_id)) if data.get("item_edit_mode") == "media" and item_edit_id else kb_wictory_upload_actions(back_cb="wictory:back:bank")
     await message.answer(
         f"Принято: {len(shots)}/10. Отправьте ещё файл или напишите 'Готово'.",
         reply_markup=kb,
     )
+
+
+@router.callback_query(F.data == "wictory:upload_done")
+async def wictory_upload_screenshot_done_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    if await state.get_state() != WictoryStates.upload_screenshot.state:
+        await cq.answer("Сейчас это недоступно", show_alert=True)
+        return
+
+    data = await state.get_data()
+    shots = list(data.get("screenshots") or [])
+    if not shots:
+        await cq.answer("Нужно добавить хотя бы 1 файл.", show_alert=True)
+        return
+
+    if data.get("invalid_edit_mode") == "media" and data.get("invalid_item_id"):
+        await wictory_update_invalid_item(
+            session,
+            item_id=int(data.get("invalid_item_id")),
+            wictory_user_id=int(user.id),
+            screenshots=shots,
+        )
+        await state.clear()
+        await cq.answer("Медиа обновлены")
+        if cq.message:
+            await cq.message.edit_text("Медиа обновлены", reply_markup=kb_wictory_main_inline())
+        return
+
+    if data.get("item_edit_mode") == "media" and data.get("item_edit_id"):
+        await wictory_update_item(
+            session,
+            item_id=int(data.get("item_edit_id")),
+            wictory_user_id=int(user.id),
+            screenshots=shots,
+        )
+        await state.clear()
+        await cq.answer("Esim обновлены")
+        if cq.message:
+            await cq.message.edit_text("Esim обновлены", reply_markup=kb_wictory_main_inline())
+        return
+
+    rtype = str(data.get("resource_type") or "")
+    if rtype == "esim":
+        await state.set_state(WictoryStates.preview)
+        data = await state.get_data()
+        await cq.answer()
+        if cq.message:
+            await cq.message.edit_text(_render_preview(data), reply_markup=kb_wictory_preview())
+        return
+
+    await state.set_state(WictoryStates.enter_data)
+    await cq.answer()
+    if cq.message:
+        await cq.message.edit_text("Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
 
 
 @router.message(WictoryStates.upload_screenshot, F.text)
@@ -300,7 +357,7 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
     if (message.text or "").strip().lower() != "готово":
         data = await state.get_data()
         item_edit_id = data.get("item_edit_id")
-        kb = kb_wictory_item_edit_back_cancel(int(item_edit_id)) if data.get("item_edit_mode") == "media" and item_edit_id else kb_wictory_back_cancel(back_cb="wictory:back:bank")
+        kb = kb_wictory_item_edit_back_cancel(int(item_edit_id)) if data.get("item_edit_mode") == "media" and item_edit_id else kb_wictory_upload_actions(back_cb="wictory:back:bank")
         await message.answer(
             "Отправьте файл (фото/док/видео) или напишите 'Готово'.",
             reply_markup=kb,
