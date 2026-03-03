@@ -4,7 +4,7 @@ import logging
 import re
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.exceptions import TelegramMigrateToChat, TelegramNetworkError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InputMediaDocument, InputMediaPhoto, InputMediaVideo, Message, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -1452,6 +1452,8 @@ async def review_form(
 
         # post to forwarding group bound to the drop manager
         target_chat_id: int | None = None
+        forward_ok = False
+        forward_err = ""
         if manager and getattr(manager, "forward_group_id", None):
             g = await get_forward_group_by_id(session, int(manager.forward_group_id))
             if g:
@@ -1462,11 +1464,41 @@ async def review_form(
             target_chat_id = int(settings.group_chat_id)
 
         if target_chat_id is not None:
+            group_text = _format_form_for_group(form, manager_tag)
             try:
-                group_text = _format_form_for_group(form, manager_tag)
                 await cq.bot.send_message(target_chat_id, group_text, reply_markup=None)
-            except Exception:
+                forward_ok = True
+            except TelegramMigrateToChat as e:
+                new_chat_id = int(getattr(e, "migrate_to_chat_id", 0) or 0)
+                if new_chat_id:
+                    try:
+                        if manager and getattr(manager, "forward_group_id", None):
+                            g = await get_forward_group_by_id(session, int(manager.forward_group_id))
+                            if g:
+                                g.chat_id = int(new_chat_id)
+                        await cq.bot.send_message(int(new_chat_id), group_text, reply_markup=None)
+                        forward_ok = True
+                        log.warning("Updated migrated forward group chat_id %s -> %s", target_chat_id, new_chat_id)
+                    except Exception as ex:
+                        forward_err = str(ex)
+                        log.exception("Failed to post to migrated group")
+                else:
+                    forward_err = "group migrated without new chat id"
+                    log.exception("Failed to post to group (migrate without target id)")
+            except Exception as ex:
+                forward_err = str(ex)
                 log.exception("Failed to post to group")
+        else:
+            forward_err = "forward group is not configured"
+
+        if manager_tg_id and not forward_ok:
+            try:
+                await cq.bot.send_message(
+                    int(manager_tg_id),
+                    "⚠️ Не удалось отправить анкету в группу пересылки. Разработчик уже видит это в логах.",
+                )
+            except Exception:
+                pass
 
         # delete form messages (album/text) + controls from TL chat
         data = await state.get_data()
