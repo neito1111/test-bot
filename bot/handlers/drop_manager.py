@@ -5412,7 +5412,17 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
     )
     await cq.answer()
     if cq.message:
-        await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+        shots = list(getattr(assigned, "screenshots", None) or [])
+        if shots:
+            kind, fid = unpack_media_item(str(shots[0]))
+            if kind == "photo":
+                await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+            elif kind == "video":
+                await cq.message.answer_video(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+            else:
+                await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+        else:
+            await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
 
 
 @router.callback_query(F.data == "dm:resource_active")
@@ -5455,7 +5465,17 @@ async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> N
     )
     await cq.answer()
     if cq.message:
-        await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(it.id)))
+        shots = list(getattr(it, "screenshots", None) or [])
+        if shots:
+            kind, fid = unpack_media_item(str(shots[0]))
+            if kind == "photo":
+                await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(it.id)))
+            elif kind == "video":
+                await cq.message.answer_video(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(it.id)))
+            else:
+                await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(it.id)))
+        else:
+            await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(it.id)))
 
 
 @router.callback_query(F.data.startswith("dm:resource_release:"))
