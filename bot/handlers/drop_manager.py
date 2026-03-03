@@ -5580,10 +5580,27 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
     wictory_owner = await get_user_by_id(session, int(it.created_by_user_id)) if it else None
     if wictory_owner and wictory_owner.role == UserRole.WICTORY:
         try:
-            await cq.bot.send_message(
-                int(wictory_owner.tg_id),
-                f"✅ Ссылка/Esim использована\nФорма #{form_id}\nБанк: {form.bank_name if form else '—'}\nСсылка/Esim: {it.text_data or '—'}",
+            caption = (
+                f"✅ Ссылка/Esim использована\n"
+                f"Форма #{form_id}\n"
+                f"Банк: {form.bank_name if form else '—'}\n"
+                f"Ссылка/Esim: {it.text_data or '—'}"
             )
+            shots = list(getattr(it, "screenshots", None) or [])
+            if shots:
+                kind, fid = unpack_media_item(str(shots[0]))
+                if kind == "photo":
+                    await cq.bot.send_photo(int(wictory_owner.tg_id), fid, caption=caption, parse_mode="HTML")
+                elif kind == "video":
+                    await cq.bot.send_video(int(wictory_owner.tg_id), fid, caption=caption, parse_mode="HTML")
+                else:
+                    await cq.bot.send_document(int(wictory_owner.tg_id), fid, caption=caption, parse_mode="HTML")
+            else:
+                await cq.bot.send_message(
+                    int(wictory_owner.tg_id),
+                    caption,
+                    disable_web_page_preview=True,
+                )
         except Exception:
             pass
     if cq.message:
