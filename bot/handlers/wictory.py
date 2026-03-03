@@ -551,7 +551,7 @@ async def wictory_preview_show(cq: CallbackQuery, session: AsyncSession, state: 
         await _show_preview_from_callback(cq, data)
 
 
-@router.callback_query(WictoryStates.preview, F.data == "wictory:confirm")
+@router.callback_query(F.data == "wictory:confirm")
 async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     user = await _wictory_guard(cq, session)
     if not user:
@@ -574,9 +574,9 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
         created_by_user_id=int(user.id),
     )
     await state.clear()
-    await cq.answer("Сохранено")
+    await cq.answer()
     if cq.message:
-        await cq.message.answer("✅ Запись добавлена в пул", reply_markup=kb_wictory_main_inline())
+        await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:invalid:list")
