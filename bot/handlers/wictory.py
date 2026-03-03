@@ -576,7 +576,7 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
     await state.clear()
     await cq.answer("Сохранено")
     if cq.message:
-        await cq.message.edit_text("✅ Запись добавлена в пул", reply_markup=kb_wictory_main_inline())
+        await cq.message.answer("✅ Запись добавлена в пул", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:invalid:list")
