@@ -1222,6 +1222,14 @@ def kb_wictory_item_edit_back_cancel(item_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def kb_wictory_invalid_edit_back_cancel(item_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="⬅️ Назад", callback_data=f"wictory:invalid:open:{int(item_id)}")
+    b.button(text="❌ Отмена", callback_data="wictory:item:cancel_edit")
+    b.adjust(2)
+    return b.as_markup()
+
+
 def kb_wictory_item_pick_source(item_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="TG", callback_data=f"wictory:item:set_source:{int(item_id)}:TG")
