@@ -519,13 +519,19 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
         await state.set_state(WictoryStates.enter_data)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text("Введите нужные данные")
+            await cq.message.edit_text(
+                "Введите нужные данные",
+                reply_markup=kb_wictory_back_cancel(back_cb="wictory:preview"),
+            )
         return
     if action == "screen":
         await state.set_state(WictoryStates.upload_screenshot)
         await cq.answer()
         if cq.message:
-            await cq.message.edit_text("Отправьте скриншот")
+            await cq.message.edit_text(
+                "Отправьте скриншот",
+                reply_markup=kb_wictory_upload_actions(back_cb="wictory:preview"),
+            )
         return
     await state.set_state(WictoryStates.preview)
     await cq.answer("Превью отправлено ниже")
