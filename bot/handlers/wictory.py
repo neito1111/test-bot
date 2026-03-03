@@ -749,20 +749,12 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         shots = list(it.screenshots or [])
         if shots:
             kind, fid = unpack_media_item(str(shots[0]))
-            try:
-                if kind == "photo":
-                    await cq.message.edit_media(InputMediaPhoto(media=fid, caption=txt, parse_mode="HTML"), reply_markup=kb)
-                elif kind == "video":
-                    await cq.message.edit_media(InputMediaVideo(media=fid, caption=txt, parse_mode="HTML"), reply_markup=kb)
-                else:
-                    await cq.message.edit_media(InputMediaDocument(media=fid, caption=txt, parse_mode="HTML"), reply_markup=kb)
-            except TelegramBadRequest:
-                if kind == "photo":
-                    await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
-                elif kind == "video":
-                    await cq.message.answer_video(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
-                else:
-                    await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
+            if kind == "photo":
+                await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
+            elif kind == "video":
+                await cq.message.answer_video(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
+            else:
+                await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb)
         else:
             await cq.message.edit_text(txt, reply_markup=kb)
 
