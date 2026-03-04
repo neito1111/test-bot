@@ -5664,7 +5664,25 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
         await cq.answer("Можно подвязывать только APPROVED анкеты", show_alert=True)
         return
     if await form_has_linked_pool_item(session, form_id=form_id):
-        await cq.answer("К этой анкете уже подвязан ресурс", show_alert=True)
+        # stale list protection: silently refresh available forms instead of showing an error
+        created_from, created_to = _period_to_range("today")
+        bank = await get_bank(session, int(item.bank_id))
+        bank_name = str(getattr(bank, "name", "") or "").strip().lower()
+        all_forms = await list_user_forms_in_range(session, user_id=int(user.id), created_from=created_from, created_to=created_to)
+        forms = [
+            f for f in all_forms
+            if f.status == FormStatus.APPROVED and str(f.bank_name or "").strip().lower() == bank_name
+        ]
+        filtered_forms: list[Form] = []
+        for f in forms:
+            if not await form_has_linked_pool_item(session, form_id=int(f.id)):
+                filtered_forms.append(f)
+        await cq.answer()
+        if cq.message:
+            if not filtered_forms:
+                await _safe_edit_message(message=cq.message, text="Нет APPROVED анкет этого банка без подвязанного ресурса", reply_markup=kb_dm_resource_active_actions(item_id))
+            else:
+                await _safe_edit_message(message=cq.message, text="Выберите анкету:", reply_markup=kb_dm_resource_attach_forms(item_id, filtered_forms))
         return
     if not item:
         await cq.answer("Ресурс не найден", show_alert=True)
