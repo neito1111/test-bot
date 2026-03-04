@@ -641,7 +641,7 @@ async def wictory_invalid_list(cq: CallbackQuery, session: AsyncSession) -> None
     packed: list[tuple[int, str]] = []
     for it in items:
         bank = await get_bank(session, int(it.bank_id))
-        packed.append((int(it.id), f"{bank.name if bank else '—'} | {getattr(it.type, 'value', '—')}"))
+        packed.append((int(it.id), f"#{int(it.id)} {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')}"))
     await cq.answer()
     if cq.message:
         if not packed:
@@ -663,6 +663,7 @@ async def wictory_invalid_open(cq: CallbackQuery, session: AsyncSession, state: 
     bank = await get_bank(session, int(it.bank_id))
     txt = (
         f"<b>Невалидная запись</b>\n"
+        f"ID ресурса: <code>{int(it.id)}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{getattr(it.type, 'value', '—')}</b>\n"
         f"Данные: <code>{it.text_data or '—'}</code>\n"

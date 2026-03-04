@@ -961,6 +961,7 @@ def kb_dev_edit_form(form_id: int) -> InlineKeyboardMarkup:
 def kb_dm_resource_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Активные ссылки / Esim", callback_data="dm:resource_active")
+    b.button(text="Мои подтянутые ссылки", callback_data="dm:resource_used")
     b.button(text="Банки", callback_data="dm:resource_banks")
     b.button(text="Создать Банк", callback_data="dm:resource_create_bank")
     b.button(text="⬅️ Назад", callback_data="dm:menu")
@@ -994,11 +995,15 @@ def kb_dm_resource_empty_bank(bank_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_dm_resource_type_pick(bank_id: int) -> InlineKeyboardMarkup:
+def kb_dm_resource_type_pick(bank_id: int, available_types: list[str] | tuple[str, ...] | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Esim", callback_data=f"dm:resource_take_type:{int(bank_id)}:esim")
-    b.button(text="Ссылка", callback_data=f"dm:resource_take_type:{int(bank_id)}:link")
-    b.button(text="Ссылка + Esim", callback_data=f"dm:resource_take_type:{int(bank_id)}:link_esim")
+    picked = [str(t).lower() for t in (available_types or ["esim", "link", "link_esim"])]
+    if "esim" in picked:
+        b.button(text="Esim", callback_data=f"dm:resource_take_type:{int(bank_id)}:esim")
+    if "link" in picked:
+        b.button(text="Ссылка", callback_data=f"dm:resource_take_type:{int(bank_id)}:link")
+    if "link_esim" in picked:
+        b.button(text="Ссылка + Esim", callback_data=f"dm:resource_take_type:{int(bank_id)}:link_esim")
     b.button(text="⬅️ Назад", callback_data=f"dm:resource_bank:{int(bank_id)}")
     b.adjust(1)
     return b.as_markup()
@@ -1028,6 +1033,23 @@ def kb_dm_resource_attach_forms(item_id: int, forms: list) -> InlineKeyboardMark
     for f in forms[:40]:
         b.button(text=f"#{int(f.id)} {(getattr(f, 'bank_name', None) or '—')}", callback_data=f"dm:resource_attach_pick:{int(item_id)}:{int(f.id)}")
     b.button(text="⬅️ Назад", callback_data=f"dm:resource_active_open:{int(item_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_used_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for item_id, title in items[:50]:
+        b.button(text=title, callback_data=f"dm:resource_used_open:{int(item_id)}")
+    b.button(text="⬅️ Назад", callback_data="dm:resource_menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_used_actions() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="⬅️ К списку подтянутых", callback_data="dm:resource_used")
+    b.button(text="🏠 В меню ресурсов", callback_data="dm:resource_menu")
     b.adjust(1)
     return b.as_markup()
 

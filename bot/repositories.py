@@ -692,11 +692,33 @@ async def count_dm_active_pool_items(session: AsyncSession, *, dm_user_id: int) 
     return int(res.scalar() or 0)
 
 
+async def count_dm_active_pool_items_for_bank(session: AsyncSession, *, dm_user_id: int, bank_id: int) -> int:
+    res = await session.execute(
+        select(func.count(ResourcePool.id)).where(
+            ResourcePool.assigned_to_user_id == int(dm_user_id),
+            ResourcePool.status == ResourceStatus.ASSIGNED,
+            ResourcePool.bank_id == int(bank_id),
+        )
+    )
+    return int(res.scalar() or 0)
+
+
 async def list_dm_active_pool_items(session: AsyncSession, *, dm_user_id: int) -> list[ResourcePool]:
     res = await session.execute(
         select(ResourcePool)
         .where(ResourcePool.assigned_to_user_id == int(dm_user_id), ResourcePool.status == ResourceStatus.ASSIGNED)
         .order_by(ResourcePool.updated_at.desc(), ResourcePool.id.desc())
+    )
+    return list(res.scalars().all())
+
+
+async def list_dm_used_pool_items(session: AsyncSession, *, dm_user_id: int, limit: int = 100) -> list[ResourcePool]:
+    res = await session.execute(
+        select(ResourcePool)
+        .join(Form, Form.id == ResourcePool.used_with_form_id)
+        .where(Form.manager_id == int(dm_user_id), ResourcePool.status == ResourceStatus.USED)
+        .order_by(ResourcePool.updated_at.desc(), ResourcePool.id.desc())
+        .limit(int(limit))
     )
     return list(res.scalars().all())
 
@@ -748,6 +770,16 @@ async def mark_pool_item_invalid(session: AsyncSession, *, item_id: int, dm_user
     item.assigned_to_user_id = None
     item.assigned_at = None
     return item
+
+
+async def form_has_linked_pool_item(session: AsyncSession, *, form_id: int) -> bool:
+    res = await session.execute(
+        select(func.count(ResourcePool.id)).where(
+            ResourcePool.used_with_form_id == int(form_id),
+            ResourcePool.status == ResourceStatus.USED,
+        )
+    )
+    return int(res.scalar() or 0) > 0
 
 
 async def mark_pool_item_used_with_form(session: AsyncSession, *, item_id: int, dm_user_id: int, form_id: int) -> ResourcePool | None:
