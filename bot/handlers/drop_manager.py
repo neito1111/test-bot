@@ -5514,24 +5514,61 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
     user = await get_user_by_tg_id(session, message.from_user.id)
     if not user or user.role != UserRole.DROP_MANAGER:
         return
+
+    raw_comment = (message.text or "").strip()
+    if not raw_comment:
+        await message.answer("Комментарий пустой. Введите текстом одним сообщением.")
+        return
+
     data = await state.get_data()
-    item_id = int(data.get("resource_item_id") or 0)
-    it = await mark_pool_item_invalid(session, item_id=item_id, dm_user_id=int(user.id), comment=message.text or "")
+    item_id_raw = data.get("resource_item_id")
+    try:
+        item_id = int(item_id_raw or 0)
+    except (TypeError, ValueError):
+        item_id = 0
+
+    if item_id <= 0:
+        log.warning("DM invalid-comment state without resource_item_id: tg_id=%s state=%s", getattr(user, "tg_id", None), data)
+        await state.clear()
+        await message.answer("Не удалось определить ссылку. Попробуйте снова через 'Активные ссылки / Esim'.", reply_markup=kb_dm_resource_menu())
+        return
+
+    it = await mark_pool_item_invalid(session, item_id=item_id, dm_user_id=int(user.id), comment=raw_comment)
     await state.clear()
     if not it:
-        await message.answer("Не удалось сохранить комментарий")
+        log.warning("mark_pool_item_invalid returned None: item_id=%s dm_user_id=%s", item_id, user.id)
+        await message.answer("Не удалось сохранить комментарий. Возможно, ссылка уже недоступна.", reply_markup=kb_dm_resource_menu())
         return
-    # Notify item owner wictory
-    wictory_owner = await get_user_by_id(session, int(it.created_by_user_id)) if it else None
+
+    notified_wictory = False
+    try:
+        owner_id = int(it.created_by_user_id)
+        wictory_owner = await get_user_by_id(session, owner_id)
+    except Exception:
+        wictory_owner = None
+
     if wictory_owner and wictory_owner.role == UserRole.WICTORY:
+        safe_comment = html.escape(raw_comment)
         try:
             await message.bot.send_message(
                 int(wictory_owner.tg_id),
-                f"⚠️ Невалидная ссылка/esim\nitem_id={item_id}\nКомментарий: {message.text}",
+                f"⚠️ Невалидная ссылка/esim\nitem_id={item_id}\nКомментарий: {safe_comment}",
             )
-        except Exception:
-            pass
-    await message.answer("Отправлено виктори", reply_markup=kb_dm_resource_menu())
+            notified_wictory = True
+        except Exception as exc:
+            log.exception("Failed to notify WICTORY about invalid pool item: item_id=%s owner_tg_id=%s", item_id, getattr(wictory_owner, "tg_id", None), exc_info=exc)
+    else:
+        log.warning("WICTORY owner not found for invalid pool item: item_id=%s created_by_user_id=%s", item_id, getattr(it, "created_by_user_id", None))
+
+    if notified_wictory:
+        await message.answer("Комментарий сохранён. Ссылка помечена как невалидная, WICTORY уведомлён.", reply_markup=kb_dm_resource_menu())
+    else:
+        await message.answer("Комментарий сохранён. Ссылка помечена как невалидная, но уведомление WICTORY не доставлено.", reply_markup=kb_dm_resource_menu())
+
+
+@router.message(DropManagerResourceStates.invalid_comment)
+async def dm_resource_invalid_comment_non_text(message: Message) -> None:
+    await message.answer("Введите комментарий текстом одним сообщением.")
 
 
 @router.callback_query(F.data.startswith("dm:resource_attach:"))
