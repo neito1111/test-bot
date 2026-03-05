@@ -32,6 +32,7 @@ from bot.keyboards import (
     kb_dm_edit_screens_inline,
     kb_dm_main_inline,
     kb_dm_payment_card_with_back,
+    kb_dm_approved_attach_type_pick,
     kb_dm_payment_next_actions,
     kb_dm_shift_comment_inline,
     kb_dm_source_pick_inline,
@@ -1389,8 +1390,123 @@ async def dm_approved_no_pay_open_cb(cq: CallbackQuery, session: AsyncSession, s
     except Exception:
         pass
 
+    can_attach_resource = False
+    try:
+        source = (getattr(user, "manager_source", None) or "TG")
+        banks_for_source = await _list_banks_for_dm_source(session, source)
+        bank_name_norm = str(form.bank_name or "").strip().lower()
+        bank = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
+        if bank:
+            free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank.id), source=source)
+            can_attach_resource = len(free_items) > 0
+    except Exception:
+        can_attach_resource = False
+
     if cq.message:
-        await cq.message.answer("Выберите действие:", reply_markup=kb_dm_payment_card_with_back(int(form.id)))
+        await cq.message.answer("Выберите действие:", reply_markup=kb_dm_payment_card_with_back(int(form.id), can_attach_resource=can_attach_resource))
+
+
+@router.callback_query(F.data.startswith("dm:approved_attach:"))
+async def dm_approved_attach_start_cb(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+    try:
+        form_id = int((cq.data or "").split(":")[-1])
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+
+    form = await get_form(session, form_id)
+    if not form or int(form.manager_id or 0) != int(user.id) or form.status != FormStatus.APPROVED:
+        await cq.answer("Анкета не найдена", show_alert=True)
+        return
+    if await form_has_linked_pool_item(session, form_id=int(form.id)):
+        await cq.answer("К анкете уже привязан ресурс", show_alert=True)
+        return
+
+    source = (getattr(user, "manager_source", None) or "TG")
+    banks_for_source = await _list_banks_for_dm_source(session, source)
+    bank_name_norm = str(form.bank_name or "").strip().lower()
+    bank = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
+    if not bank:
+        await cq.answer("Для этого банка нет доступных ресурсов", show_alert=True)
+        return
+
+    free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank.id), source=source)
+    counts = _free_pool_counts_by_type(free_items)
+    available_types = [t for t in ("link", "esim", "link_esim") if int(counts.get(t, 0)) > 0]
+    if not available_types:
+        await cq.answer("На этот банк нет ресурсов от WICTORY", show_alert=True)
+        return
+
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(
+            message=cq.message,
+            text=f"Анкета <code>#{int(form.id)}</code> · <b>{form.bank_name or '—'}</b>\nВыберите тип ресурса для быстрой привязки:",
+            reply_markup=kb_dm_approved_attach_type_pick(int(form.id), available_types),
+        )
+
+
+@router.callback_query(F.data.startswith("dm:approved_attach_type:"))
+async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+
+    try:
+        _, _, form_id_s, rtype = (cq.data or "").split(":", 3)
+        form_id = int(form_id_s)
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+
+    form = await get_form(session, form_id)
+    if not form or int(form.manager_id or 0) != int(user.id) or form.status != FormStatus.APPROVED:
+        await cq.answer("Анкета не найдена", show_alert=True)
+        return
+    if await form_has_linked_pool_item(session, form_id=int(form.id)):
+        await cq.answer("К анкете уже привязан ресурс", show_alert=True)
+        return
+
+    source = (getattr(user, "manager_source", None) or "TG")
+    banks_for_source = await _list_banks_for_dm_source(session, source)
+    bank_name_norm = str(form.bank_name or "").strip().lower()
+    bank = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
+    if not bank:
+        await cq.answer("Для этого банка нет доступных ресурсов", show_alert=True)
+        return
+
+    free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank.id), source=source)
+    picked = next((x for x in free_items if str(getattr(getattr(x, "type", None), "value", "") or "").lower() == str(rtype).lower()), None)
+    if not picked:
+        await cq.answer("Ресурс этого типа закончился", show_alert=True)
+        return
+
+    assigned = await assign_pool_item_to_dm(session, item_id=int(picked.id), dm_user_id=int(user.id))
+    if not assigned:
+        await cq.answer("Не удалось взять ресурс", show_alert=True)
+        return
+
+    used = await mark_pool_item_used_with_form(session, item_id=int(assigned.id), dm_user_id=int(user.id), form_id=int(form.id))
+    if not used:
+        await cq.answer("Не удалось привязать ресурс", show_alert=True)
+        return
+
+    await cq.answer("Ресурс привязан")
+    if cq.message:
+        await _safe_edit_message(
+            message=cq.message,
+            text=f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>",
+            reply_markup=kb_dm_payment_card_with_back(int(form.id)),
+        )
 
 
 @router.message(DropManagerPaymentStates.card_main, F.text)

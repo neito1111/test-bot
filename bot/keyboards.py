@@ -97,10 +97,26 @@ def kb_dm_payment_card(form_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_dm_payment_card_with_back(form_id: int) -> InlineKeyboardMarkup:
+def kb_dm_payment_card_with_back(form_id: int, *, can_attach_resource: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="КАРТА ДЛЯ ОПЛАТЫ", callback_data=f"dm:pay_card:{int(form_id)}")
+    if can_attach_resource:
+        b.button(text="🔗 Привязать к ссылке", callback_data=f"dm:approved_attach:{int(form_id)}")
     b.button(text="⬅️ Назад", callback_data="dm:approved_no_pay")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_approved_attach_type_pick(form_id: int, available_types: list[str] | tuple[str, ...]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    picked = [str(t).lower() for t in (available_types or [])]
+    if "link" in picked:
+        b.button(text="Ссылка", callback_data=f"dm:approved_attach_type:{int(form_id)}:link")
+    if "esim" in picked:
+        b.button(text="Esim", callback_data=f"dm:approved_attach_type:{int(form_id)}:esim")
+    if "link_esim" in picked:
+        b.button(text="Ссылка + Esim", callback_data=f"dm:approved_attach_type:{int(form_id)}:link_esim")
+    b.button(text="⬅️ Назад", callback_data=f"dm:approved_no_pay_open:{int(form_id)}")
     b.adjust(1)
     return b.as_markup()
 
