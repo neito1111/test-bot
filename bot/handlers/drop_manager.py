@@ -9,6 +9,7 @@ from typing import Any
 import time
 
 from aiogram import F, Router
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InputMediaDocument, InputMediaPhoto, InputMediaVideo, Message, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -5190,7 +5191,7 @@ async def form_back_to_comment(message: Message, state: FSMContext) -> None:
 
 
 # Fallback: capture manager tag (must be last to avoid intercepting other text handlers)
-@router.message(F.text)
+@router.message(StateFilter(None), F.text)
 async def capture_manager_tag_if_needed(message: Message, session: AsyncSession) -> None:
     if not message.from_user or not message.text:
         return
