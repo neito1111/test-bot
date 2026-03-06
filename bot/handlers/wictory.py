@@ -149,7 +149,7 @@ async def _show_preview_from_callback(cq: CallbackQuery, data: dict) -> None:
 def _status_icon(status: str) -> str:
     s = (status or "").lower()
     return {
-        "free": "🟢",
+        "free": "🟡",
         "assigned": "🟠",
         "used": "✅",
         "invalid": "🔴",
@@ -744,7 +744,7 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
             "<b>Мои записи</b>\n"
             "<blockquote expandable>"
             "Расшифровка статусов:\n"
-            "🟢 FREE — свободна, можно выдавать DM\n"
+            "🟡 FREE — свободна, можно выдавать DM\n"
             "🟠 ASSIGNED — сейчас в работе у DM\n"
             "✅ USED — уже использована\n"
             "🔴 INVALID — помечена невалидной"
@@ -766,7 +766,7 @@ async def wictory_items_legend(cq: CallbackQuery, session: AsyncSession) -> None
         await cq.message.answer(
             "<blockquote expandable>"
             "Расшифровка статусов:\n"
-            "🟢 FREE — свободна, можно выдавать DM\n"
+            "🟡 FREE — свободна, можно выдавать DM\n"
             "🟠 ASSIGNED — сейчас в работе у DM\n"
             "✅ USED — уже использована\n"
             "🔴 INVALID — помечена невалидной"
@@ -1093,7 +1093,7 @@ async def _render_stats_text(session: AsyncSession, data: dict) -> str:
             "",
             f"<b>{idx}. {bank_name} ({source})</b>",
             f"• Типы: 🔗 {st['link']} | 📱 {st['esim']} | 🔗+📱 {st['link_esim']}",
-            f"• Статусы: 🟢 {st['free']} | 🟠 {st['assigned']} | ✅ {st['used']} | 🔴 {st['invalid']}",
+            f"• Статусы: 🟡 {st['free']} | 🟠 {st['assigned']} | ✅ {st['used']} | 🔴 {st['invalid']}",
         ])
 
     lines.extend([
@@ -1101,7 +1101,7 @@ async def _render_stats_text(session: AsyncSession, data: dict) -> str:
         "━━━━━━━━━━━━━━",
         "<b>ИТОГО</b>",
         f"Типы: 🔗 {total_link} | 📱 {total_esim} | 🔗+📱 {total_combo}",
-        f"Статусы: 🟢 {total_free} | 🟠 {total_assigned} | ✅ {total_used} | 🔴 {total_invalid}",
+        f"Статусы: 🟡 {total_free} | 🟠 {total_assigned} | ✅ {total_used} | 🔴 {total_invalid}",
     ])
     return "\n".join(lines)
 
