@@ -5649,6 +5649,7 @@ async def dm_resource_invalid_start(cq: CallbackQuery, session: AsyncSession, st
         return
     user = await get_user_by_tg_id(session, cq.from_user.id)
     if not user or user.role != UserRole.DROP_MANAGER:
+        await cq.answer("Нет прав", show_alert=True)
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
@@ -5682,7 +5683,10 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
         return
     user = await get_user_by_tg_id(session, message.from_user.id)
     if not user or user.role != UserRole.DROP_MANAGER:
+        await message.answer("Нет прав")
         return
+
+    log.info("DM invalid comment received: tg_id=%s text_len=%s", getattr(user, "tg_id", None), len((message.text or "").strip()))
 
     raw_comment = (message.text or "").strip()
     if not raw_comment:
@@ -5704,6 +5708,7 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
 
     it = await mark_pool_item_invalid(session, item_id=item_id, dm_user_id=int(user.id), comment=raw_comment)
     await state.clear()
+    log.info("DM invalid mark result: item_id=%s dm_user_id=%s ok=%s", item_id, user.id, bool(it))
     if not it:
         log.warning("mark_pool_item_invalid returned None: item_id=%s dm_user_id=%s", item_id, user.id)
         await message.answer("Не удалось сохранить комментарий. Возможно, ссылка уже недоступна.", reply_markup=kb_dm_resource_menu())
