@@ -5651,11 +5651,29 @@ async def dm_resource_invalid_start(cq: CallbackQuery, session: AsyncSession, st
     if not user or user.role != UserRole.DROP_MANAGER:
         return
     item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.assigned_to_user_id or 0) != int(user.id) or str(getattr(it.status, "value", "")) != "assigned":
+        await cq.answer("Ресурс недоступен", show_alert=True)
+        return
     await state.set_state(DropManagerResourceStates.invalid_comment)
     await state.update_data(resource_item_id=item_id)
     await cq.answer()
     if cq.message:
-        await cq.message.answer(f"Введите комментарий для ресурса ID <code>{item_id}</code>")
+        await cq.message.answer(
+            f"Введите комментарий для ресурса ID <code>{item_id}</code>",
+            reply_markup=kb_dm_back_cancel_inline(
+                back_cb=f"dm:resource_active_open:{int(item_id)}",
+                cancel_cb="dm:resource_invalid_cancel",
+            ),
+        )
+
+
+@router.callback_query(F.data == "dm:resource_invalid_cancel")
+async def dm_resource_invalid_cancel(cq: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await cq.answer("Отменено")
+    if cq.message:
+        await _safe_edit_message(message=cq.message, text="Действие отменено", reply_markup=kb_dm_resource_menu())
 
 
 @router.message(DropManagerResourceStates.invalid_comment, F.text)
@@ -5692,34 +5710,59 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
         return
 
     notified_wictory = False
+    sent_tg_ids: set[int] = set()
+    safe_comment = html.escape(raw_comment)
+    notice_text = f"⚠️ Невалидная ссылка/esim\nID ресурса: <code>{item_id}</code>\nКомментарий: {safe_comment}"
+
     try:
         owner_id = int(it.created_by_user_id)
         wictory_owner = await get_user_by_id(session, owner_id)
     except Exception:
         wictory_owner = None
 
+    targets: list[User] = []
     if wictory_owner and wictory_owner.role == UserRole.WICTORY:
-        safe_comment = html.escape(raw_comment)
+        targets.append(wictory_owner)
+
+    # fallback: notify all WICTORY users so the event never gets lost
+    if not targets:
         try:
-            await message.bot.send_message(
-                int(wictory_owner.tg_id),
-                f"⚠️ Невалидная ссылка/esim\nitem_id={item_id}\nКомментарий: {safe_comment}",
-            )
+            all_users = await list_users(session)
+            targets = [u for u in all_users if u.role == UserRole.WICTORY and getattr(u, "tg_id", None)]
+        except Exception:
+            targets = []
+
+    for wu in targets:
+        try:
+            tg_id = int(getattr(wu, "tg_id", 0) or 0)
+            if tg_id <= 0 or tg_id in sent_tg_ids:
+                continue
+            await message.bot.send_message(tg_id, notice_text, parse_mode="HTML")
+            sent_tg_ids.add(tg_id)
             notified_wictory = True
-        except Exception as exc:
-            log.exception("Failed to notify WICTORY about invalid pool item: item_id=%s owner_tg_id=%s", item_id, getattr(wictory_owner, "tg_id", None), exc_info=exc)
-    else:
-        log.warning("WICTORY owner not found for invalid pool item: item_id=%s created_by_user_id=%s", item_id, getattr(it, "created_by_user_id", None))
+        except Exception:
+            log.exception("Failed to notify WICTORY about invalid pool item: item_id=%s owner_tg_id=%s", item_id, getattr(wu, "tg_id", None))
 
     if notified_wictory:
-        await message.answer(f"Комментарий сохранён. Ресурс <code>#{item_id}</code> помечен как невалидный, WICTORY уведомлён.", reply_markup=kb_dm_resource_menu())
+        await message.answer(f"Комментарий сохранён. Ресурс <code>#{item_id}</code> отправлен обратно как невалидный, WICTORY уведомлён.", reply_markup=kb_dm_resource_menu())
     else:
-        await message.answer(f"Комментарий сохранён. Ресурс <code>#{item_id}</code> помечен как невалидный, но уведомление WICTORY не доставлено.", reply_markup=kb_dm_resource_menu())
+        await message.answer(f"Комментарий сохранён. Ресурс <code>#{item_id}</code> отправлен обратно как невалидный, но уведомление WICTORY не доставлено.", reply_markup=kb_dm_resource_menu())
 
 
 @router.message(DropManagerResourceStates.invalid_comment)
-async def dm_resource_invalid_comment_non_text(message: Message) -> None:
-    await message.answer("Введите комментарий текстом одним сообщением.")
+async def dm_resource_invalid_comment_non_text(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    try:
+        item_id = int(data.get("resource_item_id") or 0)
+    except Exception:
+        item_id = 0
+    await message.answer(
+        "Введите комментарий текстом одним сообщением.",
+        reply_markup=kb_dm_back_cancel_inline(
+            back_cb=f"dm:resource_active_open:{int(item_id)}" if item_id > 0 else "dm:resource_active",
+            cancel_cb="dm:resource_invalid_cancel",
+        ),
+    )
 
 
 @router.callback_query(F.data.startswith("dm:resource_attach:"))
