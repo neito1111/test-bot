@@ -5717,7 +5717,13 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
     notified_wictory = False
     sent_tg_ids: set[int] = set()
     safe_comment = html.escape(raw_comment)
-    notice_text = f"⚠️ Невалидная ссылка/esim\nID ресурса: <code>{item_id}</code>\nКомментарий: {safe_comment}"
+    type_ru = _pool_type_ru(str(getattr(getattr(it, "type", None), "value", "") or ""))
+    notice_text = (
+        "⚠️ Ресурс помечен как невалидный\n"
+        f"ID ресурса: <code>{item_id}</code>\n"
+        f"Тип: <b>{html.escape(type_ru)}</b>\n"
+        f"Комментарий DM: {safe_comment}"
+    )
 
     try:
         owner_id = int(it.created_by_user_id)
@@ -5742,7 +5748,10 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
             tg_id = int(getattr(wu, "tg_id", 0) or 0)
             if tg_id <= 0 or tg_id in sent_tg_ids:
                 continue
-            await message.bot.send_message(tg_id, notice_text, parse_mode="HTML")
+            kb = InlineKeyboardBuilder()
+            kb.button(text="Перейти", callback_data=f"wictory:invalid:open:{int(item_id)}")
+            kb.adjust(1)
+            await message.bot.send_message(tg_id, notice_text, parse_mode="HTML", reply_markup=kb.as_markup())
             sent_tg_ids.add(tg_id)
             notified_wictory = True
         except Exception:
