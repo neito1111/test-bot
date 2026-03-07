@@ -156,6 +156,10 @@ def _status_icon(status: str) -> str:
     }.get(s, "⚪")
 
 
+def _resource_ident(item_id: int) -> str:
+    return f"RID-{int(item_id):06d}"
+
+
 def _render_preview(data: dict) -> str:
     rtype = str(data.get("resource_type") or "")
     bank_name = data.get("bank_name") or "—"
@@ -641,7 +645,7 @@ async def wictory_invalid_list(cq: CallbackQuery, session: AsyncSession) -> None
     packed: list[tuple[int, str]] = []
     for it in items:
         bank = await get_bank(session, int(it.bank_id))
-        packed.append((int(it.id), f"#{int(it.id)} {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')}"))
+        packed.append((int(it.id), f"{_resource_ident(int(it.id))} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')}"))
     await cq.answer()
     if cq.message:
         if not packed:
@@ -664,6 +668,7 @@ async def wictory_invalid_open(cq: CallbackQuery, session: AsyncSession, state: 
     txt = (
         f"<b>Невалидная запись</b>\n"
         f"ID ресурса: <code>{int(it.id)}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{getattr(it.type, 'value', '—')}</b>\n"
         f"Данные: <code>{it.text_data or '—'}</code>\n"
@@ -730,7 +735,7 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
         icon = _status_icon(st)
         packed.append((
             int(it.id),
-            f"{icon} #{int(it.id)} {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')} | {st.upper()}",
+            f"{icon} {_resource_ident(int(it.id))} | {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')} | {st.upper()}",
         ))
     await cq.answer()
     if cq.message:
@@ -787,6 +792,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
     bank = await get_bank(session, int(it.bank_id))
     txt = (
         f"<b>Запись #{int(it.id)}</b>\n"
+        f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Источник: <b>{it.source}</b>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{getattr(it.type, 'value', '—')}</b>\n"

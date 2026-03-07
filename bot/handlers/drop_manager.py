@@ -5413,6 +5413,10 @@ def _pool_type_ru(t: str) -> str:
     }.get((t or "").lower(), t or "—")
 
 
+def _resource_ident(item_id: int) -> str:
+    return f"RID-{int(item_id):06d}"
+
+
 def _free_pool_counts_by_type(items: list) -> dict[str, int]:
     out = {"link": 0, "esim": 0, "link_esim": 0}
     for x in items:
@@ -5557,6 +5561,7 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
     txt = (
         f"✅ Взято в работу\n\n"
         f"ID ресурса: <code>{int(assigned.id)}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(assigned.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(assigned.type, 'value', ''))}</b>\n"
         f"Данные: <code>{assigned.text_data or '—'}</code>"
@@ -5587,7 +5592,7 @@ async def dm_resource_active(cq: CallbackQuery, session: AsyncSession) -> None:
     packed: list[tuple[int, str]] = []
     for it in items:
         bank = await get_bank(session, int(it.bank_id))
-        packed.append((int(it.id), f"#{int(it.id)} {bank.name if bank else '—'} | {_pool_type_ru(getattr(it.type, 'value', ''))}"))
+        packed.append((int(it.id), f"{_resource_ident(int(it.id))} | {bank.name if bank else '—'} | {_pool_type_ru(getattr(it.type, 'value', ''))}"))
     await cq.answer()
     if cq.message:
         if not packed:
@@ -5611,6 +5616,7 @@ async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> N
     bank = await get_bank(session, int(it.bank_id))
     txt = (
         f"ID ресурса: <code>{int(it.id)}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(it.type, 'value', ''))}</b>\n"
         f"Данные: <code>{it.text_data or '—'}</code>"
@@ -5662,7 +5668,7 @@ async def dm_resource_invalid_start(cq: CallbackQuery, session: AsyncSession, st
     await cq.answer()
     if cq.message:
         await cq.message.answer(
-            f"Введите комментарий для ресурса ID <code>{item_id}</code>",
+            f"Введите комментарий для ресурса ID <code>{item_id}</code> (код: <code>{_resource_ident(int(item_id))}</code>)",
             reply_markup=kb_dm_back_cancel_inline(
                 back_cb=f"dm:resource_active_open:{int(item_id)}",
                 cancel_cb="dm:resource_invalid_cancel",
@@ -5722,6 +5728,7 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
     notice_text = (
         "⚠️ Ресурс помечен как невалидный\n"
         f"ID ресурса: <code>{item_id}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
         f"Тип: <b>{html.escape(type_ru)}</b>\n"
         f"Комментарий DM: {safe_comment}"
     )
@@ -5759,9 +5766,9 @@ async def dm_resource_invalid_comment(message: Message, session: AsyncSession, s
             log.exception("Failed to notify WICTORY about invalid pool item: item_id=%s owner_tg_id=%s", item_id, getattr(wu, "tg_id", None))
 
     if notified_wictory:
-        await message.answer(f"Комментарий сохранён. Ресурс <code>#{item_id}</code> отправлен обратно как невалидный, WICTORY уведомлён.", reply_markup=kb_dm_resource_menu())
+        await message.answer(f"Комментарий сохранён. Ресурс <code>{_resource_ident(int(item_id))}</code> отправлен обратно как невалидный, WICTORY уведомлён.", reply_markup=kb_dm_resource_menu())
     else:
-        await message.answer(f"Комментарий сохранён. Ресурс <code>#{item_id}</code> отправлен обратно как невалидный, но уведомление WICTORY не доставлено.", reply_markup=kb_dm_resource_menu())
+        await message.answer(f"Комментарий сохранён. Ресурс <code>{_resource_ident(int(item_id))}</code> отправлен обратно как невалидный, но уведомление WICTORY не доставлено.", reply_markup=kb_dm_resource_menu())
 
 
 @router.message(DropManagerResourceStates.invalid_comment)
@@ -5877,6 +5884,8 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
             caption = (
                 f"✅ Ресурс подтянут\n"
                 f"ID ресурса: <code>{item_id}</code>\n"
+                f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
                 f"Форма #{form_id} · {form.bank_name if form else '—'}"
             )
             shots = list(getattr(it, "screenshots", None) or [])
@@ -5897,7 +5906,7 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
         except Exception:
             pass
     if cq.message:
-        await _safe_edit_message(message=cq.message, text=f"Ресурс <code>#{item_id}</code> привязан к анкете <code>#{form_id}</code> и удален из активных", reply_markup=kb_dm_resource_menu())
+        await _safe_edit_message(message=cq.message, text=f"Ресурс <code>{_resource_ident(int(item_id))}</code> привязан к анкете <code>#{form_id}</code> и удален из активных", reply_markup=kb_dm_resource_menu())
 
 
 @router.callback_query(F.data == "dm:resource_used")
@@ -5912,7 +5921,7 @@ async def dm_resource_used(cq: CallbackQuery, session: AsyncSession) -> None:
     for it in items:
         bank = await get_bank(session, int(it.bank_id))
         form_suffix = f" → анкета #{int(it.used_with_form_id)}" if getattr(it, "used_with_form_id", None) else ""
-        packed.append((int(it.id), f"#{int(it.id)} {bank.name if bank else '—'} | {_pool_type_ru(getattr(it.type, 'value', ''))}{form_suffix}"))
+        packed.append((int(it.id), f"{_resource_ident(int(it.id))} | {bank.name if bank else '—'} | {_pool_type_ru(getattr(it.type, 'value', ''))}{form_suffix}"))
     await cq.answer()
     if cq.message:
         if not packed:
@@ -5941,6 +5950,7 @@ async def dm_resource_used_open(cq: CallbackQuery, session: AsyncSession) -> Non
     txt = (
         f"<b>Подтянутый ресурс</b>\n"
         f"ID ресурса: <code>{int(it.id)}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(it.type, 'value', ''))}</b>\n"
         f"Анкета: <code>#{int(form.id)}</code>\n"
