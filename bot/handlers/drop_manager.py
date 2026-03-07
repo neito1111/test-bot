@@ -5414,7 +5414,7 @@ def _pool_type_ru(t: str) -> str:
 
 
 def _resource_ident(item_id: int) -> str:
-    return f"RID-{int(item_id):06d}"
+    return f"RID-{int(item_id)}"
 
 
 def _free_pool_counts_by_type(items: list) -> dict[str, int]:

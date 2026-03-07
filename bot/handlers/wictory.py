@@ -157,7 +157,7 @@ def _status_icon(status: str) -> str:
 
 
 def _resource_ident(item_id: int) -> str:
-    return f"RID-{int(item_id):06d}"
+    return f"RID-{int(item_id)}"
 
 
 def _render_preview(data: dict) -> str:
