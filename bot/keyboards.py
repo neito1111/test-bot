@@ -1038,7 +1038,7 @@ def kb_dm_resource_active_actions(item_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Главная", callback_data="dm:menu")
     b.button(text="Вернуть обратно в запрос", callback_data=f"dm:resource_release:{int(item_id)}")
-    b.button(text="Esim/Ссылка не Валид", callback_data=f"dm:resource_invalid:{int(item_id)}")
+    b.button(text="Не рабочая ссылка/Esim", callback_data=f"dm:resource_invalid:{int(item_id)}")
     b.button(text="Подтянуть анкетой", callback_data=f"dm:resource_attach:{int(item_id)}")
     b.adjust(1)
     return b.as_markup()
