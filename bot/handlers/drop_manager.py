@@ -5580,6 +5580,10 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
         else:
             await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
 
+        raw_payload = str(getattr(assigned, "text_data", "") or "").strip()
+        if raw_payload:
+            await cq.message.answer(f"Сообщение от WICTORY:\n{raw_payload}")
+
 
 @router.callback_query(F.data == "dm:resource_active")
 async def dm_resource_active(cq: CallbackQuery, session: AsyncSession) -> None:
