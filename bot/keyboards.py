@@ -1100,6 +1100,15 @@ def kb_wictory_banks(items: list[tuple[int, str]], *, back_cb: str = "wictory:ho
     return b.as_markup()
 
 
+def kb_wictory_bank_actions() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Добавить массово", callback_data="wictory:bank_mode:bulk")
+    b.button(text="Обычное добавление", callback_data="wictory:bank_mode:single")
+    b.button(text="⬅️ Назад", callback_data="wictory:back:bank")
+    b.adjust(1)
+    return b.as_markup()
+
+
 def kb_wictory_back_cancel(*, back_cb: str, cancel_cb: str = "wictory:cancel_create") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="⬅️ Назад", callback_data=back_cb)

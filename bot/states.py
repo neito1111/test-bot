@@ -77,6 +77,7 @@ class WictoryStates(StatesGroup):
     pick_bank = State()
     upload_screenshot = State()
     enter_data = State()
+    enter_bulk = State()
     preview = State()
     edit_pick = State()
 

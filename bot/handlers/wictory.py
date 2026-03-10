@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.keyboards import (
     kb_wictory_back_cancel,
     kb_wictory_banks,
+    kb_wictory_bank_actions,
     kb_wictory_edit,
     kb_wictory_invalid_actions,
     kb_wictory_invalid_edit_back_cancel,
@@ -320,22 +321,66 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
     if not bank:
         await cq.answer("Банк не найден", show_alert=True)
         return
-    data = await state.get_data()
-    rtype = data.get("resource_type")
     await state.update_data(bank_id=bank_id, bank_name=bank.name)
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_or_answer(
+            cq,
+            f"Банк: <b>{bank.name}</b>\nВыберите режим добавления:",
+            reply_markup=kb_wictory_bank_actions(),
+        )
+
+
+@router.callback_query(F.data == "wictory:bank_mode:single")
+async def wictory_bank_mode_single(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    data = await state.get_data()
+    rtype = str(data.get("resource_type") or "")
     if rtype in {"esim", "link_esim"}:
         await state.set_state(WictoryStates.upload_screenshot)
+        await state.update_data(bulk_mode=False)
         await cq.answer()
         if cq.message:
-            await _safe_edit_or_answer(cq, 
+            await _safe_edit_or_answer(
+                cq,
                 "Отправьте файл Esim (фото/док/видео), до 10 шт., затем нажмите '✅ Готово' или напишите 'Готово'",
                 reply_markup=kb_wictory_upload_actions(back_cb="wictory:back:bank"),
             )
         return
     await state.set_state(WictoryStates.enter_data)
+    await state.update_data(bulk_mode=False)
     await cq.answer()
     if cq.message:
         await _safe_edit_or_answer(cq, "Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
+
+
+@router.callback_query(F.data == "wictory:bank_mode:bulk")
+async def wictory_bank_mode_bulk(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    data = await state.get_data()
+    rtype = str(data.get("resource_type") or "")
+    await state.update_data(bulk_mode=True)
+    await cq.answer()
+    if rtype in {"esim", "link_esim"}:
+        await state.set_state(WictoryStates.upload_screenshot)
+        if cq.message:
+            await _safe_edit_or_answer(
+                cq,
+                "Массовый режим: отправляйте Esim файлами (каждое сообщение = 1 ресурс). Для ESIM подпись сохранится как комментарий.\nКогда закончите — нажмите '❌ Отмена' или вернитесь назад.",
+                reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+            )
+        return
+    await state.set_state(WictoryStates.enter_bulk)
+    if cq.message:
+        await _safe_edit_or_answer(
+            cq,
+            "Массовый режим: отправляйте текстовые сообщения (или несколько строк в одном сообщении). Каждая строка = 1 ресурс.",
+            reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
+        )
 
 
 @router.message(WictoryStates.upload_screenshot, F.photo | F.document | F.video)
@@ -369,6 +414,33 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
             f"Готово. Файлов сейчас: {len(shots)}/10",
             reply_markup=kb_wictory_item_media_manage(int(item_edit_id), len(shots)),
         )
+        return
+
+    if data.get("bulk_mode"):
+        rtype = str(data.get("resource_type") or "")
+        src = str(data.get("resource_source") or "TG").upper()
+        bank_id = int(data.get("bank_id") or 0)
+        caption_txt = (message.caption or "").strip()
+
+        if rtype == "link_esim" and not caption_txt:
+            await message.answer("Для LINK+ESIM в массовом режиме нужна подпись с ссылкой/текстом в сообщении.")
+            return
+
+        if rtype == "esim":
+            text_data = caption_txt or None  # For ESIM: caption is stored as comment/text payload
+        else:
+            text_data = caption_txt or None
+
+        item = await create_resource_pool_item(
+            session,
+            source=src,
+            bank_id=bank_id,
+            resource_type=rtype,
+            text_data=text_data,
+            screenshots=[str(new_item)],
+            created_by_user_id=int(user.id),
+        )
+        await message.answer(f"Добавлено: <code>{_resource_ident(int(item.id))}</code>")
         return
 
     if len(shots) >= 10:
@@ -499,6 +571,40 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
 
     await state.set_state(WictoryStates.enter_data)
     await message.answer("Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
+
+
+@router.message(WictoryStates.enter_bulk, F.text)
+async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(message, session)
+    if not user:
+        return
+    data = await state.get_data()
+    rtype = str(data.get("resource_type") or "")
+    src = str(data.get("resource_source") or "TG").upper()
+    bank_id = int(data.get("bank_id") or 0)
+    raw = (message.text or "").strip()
+    if not raw:
+        await message.answer("Пустое сообщение. Отправьте текст с данными.")
+        return
+
+    lines = [x.strip() for x in raw.splitlines() if x.strip()]
+    created = 0
+    for line in lines:
+        if rtype == "link_esim":
+            # For link+esim in text-only bulk, keep text payload; media can be added later if needed
+            pass
+        await create_resource_pool_item(
+            session,
+            source=src,
+            bank_id=bank_id,
+            resource_type=rtype,
+            text_data=line,
+            screenshots=[],
+            created_by_user_id=int(user.id),
+        )
+        created += 1
+
+    await message.answer(f"Добавлено массово: <b>{created}</b>")
 
 
 @router.message(WictoryStates.enter_data, F.text)
