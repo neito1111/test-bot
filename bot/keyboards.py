@@ -996,7 +996,7 @@ def kb_dm_resource_banks(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
 
 def kb_dm_resource_bank_actions(bank_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Взять ссылку", callback_data=f"dm:resource_take:{int(bank_id)}")
+    b.button(text="Взять ресурс", callback_data=f"dm:resource_take:{int(bank_id)}")
     b.button(text="Выйти на главную", callback_data="dm:menu")
     b.adjust(1)
     return b.as_markup()
@@ -1037,7 +1037,7 @@ def kb_dm_resource_active_list(items: list[tuple[int, str]]) -> InlineKeyboardMa
 def kb_dm_resource_active_actions(item_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Главная", callback_data="dm:menu")
-    b.button(text="Отпустить ссылку", callback_data=f"dm:resource_release:{int(item_id)}")
+    b.button(text="Вернуть обратно в запрос", callback_data=f"dm:resource_release:{int(item_id)}")
     b.button(text="Esim/Ссылка не Валид", callback_data=f"dm:resource_invalid:{int(item_id)}")
     b.button(text="Подтянуть анкетой", callback_data=f"dm:resource_attach:{int(item_id)}")
     b.adjust(1)
