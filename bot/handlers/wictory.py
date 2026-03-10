@@ -587,24 +587,18 @@ async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSM
         await message.answer("Пустое сообщение. Отправьте текст с данными.")
         return
 
-    lines = [x.strip() for x in raw.splitlines() if x.strip()]
-    created = 0
-    for line in lines:
-        if rtype == "link_esim":
-            # For link+esim in text-only bulk, keep text payload; media can be added later if needed
-            pass
-        await create_resource_pool_item(
-            session,
-            source=src,
-            bank_id=bank_id,
-            resource_type=rtype,
-            text_data=line,
-            screenshots=[],
-            created_by_user_id=int(user.id),
-        )
-        created += 1
+    # Bulk rule: one incoming message = one resource (no split by lines)
+    await create_resource_pool_item(
+        session,
+        source=src,
+        bank_id=bank_id,
+        resource_type=rtype,
+        text_data=raw,
+        screenshots=[],
+        created_by_user_id=int(user.id),
+    )
 
-    await message.answer(f"Добавлено массово: <b>{created}</b>")
+    await message.answer("Добавлено массово: <b>1</b>")
 
 
 @router.message(WictoryStates.enter_data, F.text)
