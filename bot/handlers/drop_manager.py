@@ -5558,12 +5558,14 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
         await cq.answer("Запись уже занята", show_alert=True)
         return
     bank = await get_bank(session, int(assigned.bank_id))
+    history_chain = str(getattr(assigned, "usage_history", "") or "").strip() or "—"
     txt = (
         f"✅ Взято в работу\n\n"
         f"ID ресурса: <code>{int(assigned.id)}</code>\n"
         f"Код ресурса: <code>{_resource_ident(int(assigned.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(assigned.type, 'value', ''))}</b>\n"
+        f"История пользования: <code>{history_chain}</code>\n"
         f"Данные: <code>{assigned.text_data or '—'}</code>"
     )
     await cq.answer()
@@ -5618,11 +5620,13 @@ async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> N
         await cq.answer("Кейс не найден", show_alert=True)
         return
     bank = await get_bank(session, int(it.bank_id))
+    history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     txt = (
         f"ID ресурса: <code>{int(it.id)}</code>\n"
         f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(it.type, 'value', ''))}</b>\n"
+        f"История пользования: <code>{history_chain}</code>\n"
         f"Данные: <code>{it.text_data or '—'}</code>"
     )
     await cq.answer()
@@ -5951,6 +5955,7 @@ async def dm_resource_used_open(cq: CallbackQuery, session: AsyncSession) -> Non
         await cq.answer("Нет доступа", show_alert=True)
         return
     bank = await get_bank(session, int(it.bank_id))
+    history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     txt = (
         f"<b>Подтянутый ресурс</b>\n"
         f"ID ресурса: <code>{int(it.id)}</code>\n"
@@ -5958,6 +5963,7 @@ async def dm_resource_used_open(cq: CallbackQuery, session: AsyncSession) -> Non
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(it.type, 'value', ''))}</b>\n"
         f"Анкета: <code>#{int(form.id)}</code>\n"
+        f"История пользования: <code>{history_chain}</code>\n"
         f"Данные: <code>{it.text_data or '—'}</code>"
     )
     await cq.answer()

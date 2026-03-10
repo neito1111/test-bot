@@ -225,6 +225,7 @@ class ResourcePool(Base):
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     invalid_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    usage_history: Mapped[str | None] = mapped_column(Text, nullable=True)
     used_with_form_id: Mapped[int | None] = mapped_column(ForeignKey("forms.id"), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

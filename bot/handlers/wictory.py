@@ -765,12 +765,14 @@ async def wictory_invalid_open(cq: CallbackQuery, session: AsyncSession, state: 
         await cq.answer("Запись не найдена", show_alert=True)
         return
     bank = await get_bank(session, int(it.bank_id))
+    history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     txt = (
         f"<b>Невалидная запись</b>\n"
         f"ID ресурса: <code>{int(it.id)}</code>\n"
         f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{getattr(it.type, 'value', '—')}</b>\n"
+        f"История пользования: <code>{history_chain}</code>\n"
         f"Данные: <code>{it.text_data or '—'}</code>\n"
         f"Комментарий DM: {it.invalid_comment or '—'}"
     )
@@ -890,6 +892,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         await cq.answer("Запись не найдена", show_alert=True)
         return
     bank = await get_bank(session, int(it.bank_id))
+    history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     txt = (
         f"<b>Запись #{int(it.id)}</b>\n"
         f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
@@ -897,6 +900,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{getattr(it.type, 'value', '—')}</b>\n"
         f"Статус: <b>{getattr(it.status, 'value', '—')}</b>\n"
+        f"История пользования: <code>{history_chain}</code>\n"
         f"Ссылка: <code>{it.text_data or '—'}</code>\n"
         f"Esim файлов: <b>{len(list(it.screenshots or []))}</b>"
     )

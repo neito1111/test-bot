@@ -748,6 +748,15 @@ async def assign_pool_item_to_dm(session: AsyncSession, *, item_id: int, dm_user
     item.status = ResourceStatus.ASSIGNED
     item.assigned_to_user_id = int(dm_user_id)
     item.assigned_at = datetime.utcnow()
+
+    dm = await get_user_by_id(session, int(dm_user_id))
+    dm_tag = str(getattr(dm, "manager_tag", "") or "").strip() or f"dm#{int(dm_user_id)}"
+    prev = str(getattr(item, "usage_history", "") or "").strip()
+    parts = [x.strip() for x in prev.split("->") if x.strip()]
+    if not parts or parts[-1] != dm_tag:
+        parts.append(dm_tag)
+    item.usage_history = " -> ".join(parts)
+
     return item
 
 

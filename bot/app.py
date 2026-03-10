@@ -169,6 +169,15 @@ async def _init_db(engine: AsyncEngine) -> None:
         except Exception:
             pass
 
+        # Ensure resource_pool.usage_history exists for manager-tag chain tracking
+        try:
+            res = await conn.execute(text("PRAGMA table_info(resource_pool)"))
+            cols = {row[1] for row in res.fetchall()}
+            if "usage_history" not in cols:
+                await conn.execute(text("ALTER TABLE resource_pool ADD COLUMN usage_history TEXT"))
+        except Exception:
+            pass
+
 
 async def _run_daily_private_cleanup(*, bot: Bot, session_maker, hour: int = 3, minute: int = 0) -> None:
     tz = ZoneInfo("Europe/Kyiv")
