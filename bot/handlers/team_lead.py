@@ -44,7 +44,6 @@ from bot.repositories import (
     count_pending_forms,
     list_banks,
     list_pending_forms,
-    list_free_pool_items_for_bank,
     list_duplicate_reports_in_range,
     set_form_status,
     approve_form_if_pending,
@@ -1440,19 +1439,6 @@ async def review_form(
                 bank_label = format_bank_hashtag(getattr(form, "bank_name", None))
                 b = InlineKeyboardBuilder()
                 b.button(text="Перейти", callback_data=f"dm:approved_no_pay_open:{int(form.id)}")
-                can_attach_resource = False
-                try:
-                    dm_source = (getattr(manager, "manager_source", None) or "TG") if manager else "TG"
-                    banks = await list_banks(session)
-                    bank_name_norm = str(form.bank_name or "").strip().lower()
-                    bank_obj = next((x for x in banks if str(getattr(x, "name", "") or "").strip().lower() == bank_name_norm), None)
-                    if bank_obj:
-                        free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank_obj.id), source=dm_source)
-                        can_attach_resource = len(free_items) > 0
-                except Exception:
-                    can_attach_resource = False
-                if can_attach_resource:
-                    b.button(text="🔗 Привязать к ссылке", callback_data=f"dm:approved_attach:{int(form.id)}")
                 b.adjust(1)
                 notice = await cq.bot.send_message(
                     manager_tg_id,

@@ -1391,20 +1391,8 @@ async def dm_approved_no_pay_open_cb(cq: CallbackQuery, session: AsyncSession, s
     except Exception:
         pass
 
-    can_attach_resource = False
-    try:
-        source = (getattr(user, "manager_source", None) or "TG")
-        banks_for_source = await _list_banks_for_dm_source(session, source)
-        bank_name_norm = str(form.bank_name or "").strip().lower()
-        bank = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
-        if bank:
-            free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank.id), source=source)
-            can_attach_resource = len(free_items) > 0
-    except Exception:
-        can_attach_resource = False
-
     if cq.message:
-        await cq.message.answer("Выберите действие:", reply_markup=kb_dm_payment_card_with_back(int(form.id), can_attach_resource=can_attach_resource))
+        await cq.message.answer("Выберите действие:", reply_markup=kb_dm_payment_card_with_back(int(form.id)))
 
 
 @router.callback_query(F.data.startswith("dm:approved_attach:"))
@@ -1552,7 +1540,7 @@ async def dm_pay_amount_main_msg(message: Message, session: AsyncSession, state:
         pay_items.append({"card": card, "amount": amount_raw})
         await state.update_data(pay_items=pay_items, pay_card_main=None)
         await state.set_state(DropManagerPaymentStates.next_action)
-        await message.answer("Карта добавлена. Что дальше?", reply_markup=kb_dm_payment_next_actions())
+        await message.answer("Карта добавлена. Что дальше?", reply_markup=kb_dm_payment_next_actions(int(form.id)))
         return
 
     if traffic == "REFERRAL":
@@ -1603,7 +1591,7 @@ async def dm_pay_next_action_text(message: Message, session: AsyncSession, state
             return
         pay_items = list(data.get("pay_items") or [])
         if not pay_items:
-            await message.answer("Добавьте хотя бы одну карту", reply_markup=kb_dm_payment_next_actions())
+            await message.answer("Добавьте хотя бы одну карту", reply_markup=kb_dm_payment_next_actions(int(form.id)))
             return
         payment_text: list[str] = []
         for item in pay_items:
@@ -1613,7 +1601,7 @@ async def dm_pay_next_action_text(message: Message, session: AsyncSession, state
                 continue
             payment_text.append(f"Оплата {_format_payment_phone(form.phone)}\n\n{card}\n\n{amount}")
         if not payment_text:
-            await message.answer("Некорректные данные оплаты", reply_markup=kb_dm_payment_next_actions())
+            await message.answer("Некорректные данные оплаты", reply_markup=kb_dm_payment_next_actions(int(form.id)))
             return
         await _finish_payment(message=message, session=session, state=state, form=form, payment_text=payment_text)
         return
@@ -1626,7 +1614,7 @@ async def dm_pay_next_action_text(message: Message, session: AsyncSession, state
         await message.answer("Напишите или перешлите сумму оплаты")
         return
 
-    await message.answer("Нажмите «Добавить карту» или «Финал»", reply_markup=kb_dm_payment_next_actions())
+    await message.answer("Нажмите «Добавить карту» или «Финал»", reply_markup=kb_dm_payment_next_actions(int(form.id)))
 
 
 @router.callback_query(F.data == "dm:pay_finish")

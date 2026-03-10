@@ -97,11 +97,9 @@ def kb_dm_payment_card(form_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_dm_payment_card_with_back(form_id: int, *, can_attach_resource: bool = False) -> InlineKeyboardMarkup:
+def kb_dm_payment_card_with_back(form_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="КАРТА ДЛЯ ОПЛАТЫ", callback_data=f"dm:pay_card:{int(form_id)}")
-    if can_attach_resource:
-        b.button(text="🔗 Привязать к ссылке", callback_data=f"dm:approved_attach:{int(form_id)}")
     b.button(text="⬅️ Назад", callback_data="dm:approved_no_pay")
     b.adjust(1)
     return b.as_markup()
@@ -121,11 +119,13 @@ def kb_dm_approved_attach_type_pick(form_id: int, available_types: list[str] | t
     return b.as_markup()
 
 
-def kb_dm_payment_next_actions() -> InlineKeyboardMarkup:
+def kb_dm_payment_next_actions(form_id: int | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Добавить карту", callback_data="dm:pay_add_card")
     b.button(text="Финал", callback_data="dm:pay_finish")
-    b.adjust(2)
+    if form_id:
+        b.button(text="🔗 Привязать анкету", callback_data=f"dm:approved_attach:{int(form_id)}")
+    b.adjust(2, 1)
     return b.as_markup()
 
 
