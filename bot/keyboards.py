@@ -1154,11 +1154,13 @@ def kb_wictory_invalid_list(items: list[tuple[int, str]]) -> InlineKeyboardMarku
     return b.as_markup()
 
 
-def kb_wictory_invalid_actions(item_id: int) -> InlineKeyboardMarkup:
+def kb_wictory_invalid_actions(item_id: int, *, type_label: str | None = None) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Изменить данные", callback_data=f"wictory:invalid:edit_data:{int(item_id)}")
     b.button(text="Заменить медиа", callback_data=f"wictory:invalid:edit_media:{int(item_id)}")
     b.button(text="Вернуть в общий пул", callback_data=f"wictory:invalid:return:{int(item_id)}")
+    t = (type_label or "ресурс").strip()
+    b.button(text=f"🗑 Удалить {t}", callback_data=f"wictory:invalid:delete:{int(item_id)}")
     b.button(text="⬅️ Назад", callback_data="wictory:invalid:list")
     b.adjust(1)
     return b.as_markup()

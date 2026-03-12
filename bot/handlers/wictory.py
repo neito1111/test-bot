@@ -779,7 +779,13 @@ async def wictory_invalid_open(cq: CallbackQuery, session: AsyncSession, state: 
     await state.update_data(invalid_item_id=item_id)
     await cq.answer()
     if cq.message:
-        await _safe_edit_or_answer(cq, txt, reply_markup=kb_wictory_invalid_actions(item_id))
+        tval = str(getattr(it.type, 'value', '') or '').lower()
+        tlabel = {
+            'link': 'ссылку',
+            'esim': 'esim',
+            'link_esim': 'ссылку+esim',
+        }.get(tval, 'ресурс')
+        await _safe_edit_or_answer(cq, txt, reply_markup=kb_wictory_invalid_actions(item_id, type_label=tlabel))
 
 
 @router.callback_query(F.data.startswith("wictory:invalid:edit_data:"))
@@ -822,6 +828,18 @@ async def wictory_invalid_return(cq: CallbackQuery, session: AsyncSession) -> No
     await cq.answer("Возвращено в общий пул" if it else "Не удалось", show_alert=not bool(it))
     if cq.message:
         await _safe_edit_or_answer(cq, "Запись возвращена в общий пул", reply_markup=kb_wictory_main_inline())
+
+
+@router.callback_query(F.data.startswith("wictory:invalid:delete:"))
+async def wictory_invalid_delete(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    ok = await wictory_delete_item(session, item_id=item_id, wictory_user_id=int(user.id))
+    await cq.answer("Удалено" if ok else "Не удалось удалить", show_alert=not bool(ok))
+    if cq.message and ok:
+        await _safe_edit_or_answer(cq, "Невалидная запись удалена", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data == "wictory:items:list")
