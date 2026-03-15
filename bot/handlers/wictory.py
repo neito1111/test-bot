@@ -181,8 +181,13 @@ def _render_preview(data: dict) -> str:
         f"Банк: <b>{bank_name}</b>",
     ]
 
-    if rtype in {"link", "link_esim"}:
+    if rtype == "link":
         lines.append(f"Ссылка: <code>{link}</code>")
+    elif rtype == "esim":
+        lines.append(f"Комментарий: <code>{link}</code>" if link != "—" else "Комментарий: —")
+    elif rtype == "link_esim":
+        lines.append(f"Ссылка/комментарий: <code>{link}</code>")
+
     if rtype in {"esim", "link_esim"}:
         lines.append(f"Файлов Esim: <b>{len(screens)}</b>")
 
@@ -943,15 +948,22 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         return
     bank = await get_bank(session, int(it.bank_id))
     history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
+    type_value = str(getattr(it.type, 'value', '—') or '—')
+    if type_value == 'esim':
+        data_line = f"Комментарий: <code>{it.text_data or '—'}</code>"
+    elif type_value == 'link_esim':
+        data_line = f"Ссылка/комментарий: <code>{it.text_data or '—'}</code>"
+    else:
+        data_line = f"Ссылка: <code>{it.text_data or '—'}</code>"
     txt = (
         f"<b>Запись #{int(it.id)}</b>\n"
         f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Источник: <b>{it.source}</b>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
-        f"Тип: <b>{getattr(it.type, 'value', '—')}</b>\n"
+        f"Тип: <b>{type_value}</b>\n"
         f"Статус: <b>{getattr(it.status, 'value', '—')}</b>\n"
         f"История пользования: <code>{history_chain}</code>\n"
-        f"Ссылка: <code>{it.text_data or '—'}</code>\n"
+        f"{data_line}\n"
         f"Esim файлов: <b>{len(list(it.screenshots or []))}</b>"
     )
     st_val = getattr(it.status, "value", "")
