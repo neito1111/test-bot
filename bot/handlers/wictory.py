@@ -447,7 +447,16 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
         await message.answer("Можно добавить максимум 10 файлов. Напишите 'Готово'.")
         return
     shots.append(str(new_item))
-    await state.update_data(screenshots=shots)
+
+    # For regular ESIM/LINK+ESIM creation, preserve media caption as resource text/comment.
+    caption_txt = (message.caption or "").strip()
+    update_payload = {"screenshots": shots}
+    if caption_txt and not data.get("item_edit_mode") and not data.get("invalid_edit_mode"):
+        current_text = str(data.get("text_data") or "").strip()
+        if not current_text:
+            update_payload["text_data"] = caption_txt
+
+    await state.update_data(**update_payload)
     invalid_item_id = data.get("invalid_item_id")
     if data.get("invalid_edit_mode") == "media" and invalid_item_id:
         kb = kb_wictory_invalid_edit_back_cancel(int(invalid_item_id))
