@@ -1577,6 +1577,11 @@ async def dm_pay_add_card_cb(cq: CallbackQuery, session: AsyncSession, state: FS
 @router.message(DropManagerPaymentStates.next_action, F.text)
 async def dm_pay_next_action_text(message: Message, session: AsyncSession, state: FSMContext) -> None:
     txt = (message.text or "").strip().lower()
+    data = await state.get_data()
+    form = await get_form(session, int(data.get("pay_form_id") or 0))
+    if not form:
+        await state.clear()
+        return
 
     if txt in {"добавить карту", "добавить"}:
         await state.set_state(DropManagerPaymentStates.card_main)
@@ -1584,11 +1589,6 @@ async def dm_pay_next_action_text(message: Message, session: AsyncSession, state
         return
 
     if txt in {"финал", "final", "готово"}:
-        data = await state.get_data()
-        form = await get_form(session, int(data.get("pay_form_id") or 0))
-        if not form:
-            await state.clear()
-            return
         pay_items = list(data.get("pay_items") or [])
         if not pay_items:
             await message.answer("Добавьте хотя бы одну карту", reply_markup=kb_dm_payment_next_actions(int(form.id)))

@@ -246,10 +246,25 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
                 await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
         return
 
-    if stage == "bank":
+    if stage == "bank_list":
+        src = str(data.get("resource_source") or "TG").upper()
+        banks = await _list_banks_for_source(session, src)
+        items = _bank_items_with_source(banks, src)
+        await state.set_state(WictoryStates.pick_bank)
         await cq.answer()
         if cq.message:
-            await _safe_edit_or_answer(cq, "Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
+            await _safe_edit_or_answer(cq, f"Источник: <b>{src}</b>\nВыберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
+        return
+
+    if stage == "bank":
+        bank_name = str(data.get("bank_name") or "").strip() or "—"
+        await cq.answer()
+        if cq.message:
+            await _safe_edit_or_answer(
+                cq,
+                f"Банк: <b>{bank_name}</b>\nВыберите режим добавления:",
+                reply_markup=kb_wictory_bank_actions(),
+            )
         return
 
     if stage == "upload":
@@ -322,7 +337,14 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
         await cq.answer("Банк не найден", show_alert=True)
         return
     await state.update_data(bank_id=bank_id, bank_name=bank.name)
+    data = await state.get_data()
     await cq.answer()
+    if data.get("bank_edit_mode"):
+        await state.update_data(bank_edit_mode=None)
+        await state.set_state(WictoryStates.preview)
+        if cq.message:
+            await _show_preview_from_callback(cq, await state.get_data())
+        return
     if cq.message:
         await _safe_edit_or_answer(
             cq,
@@ -378,7 +400,7 @@ async def wictory_bank_mode_bulk(cq: CallbackQuery, session: AsyncSession, state
     if cq.message:
         await _safe_edit_or_answer(
             cq,
-            "Массовый режим: отправляйте текстовые сообщения (или несколько строк в одном сообщении). Каждая строка = 1 ресурс.",
+            "Массовый режим: отправляйте текстовые сообщения. Каждое входящее сообщение = 1 ресурс.",
             reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
         )
 
@@ -677,6 +699,7 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
         banks = await _list_banks_for_source(session, src)
         items = _bank_items_with_source(banks, src)
         await state.set_state(WictoryStates.pick_bank)
+        await state.update_data(bank_edit_mode=True)
         await cq.answer()
         if cq.message:
             await cq.message.answer("Выберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:preview"))

@@ -1104,7 +1104,7 @@ def kb_wictory_bank_actions() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="Добавить массово", callback_data="wictory:bank_mode:bulk")
     b.button(text="Обычное добавление", callback_data="wictory:bank_mode:single")
-    b.button(text="⬅️ Назад", callback_data="wictory:back:bank")
+    b.button(text="⬅️ Назад", callback_data="wictory:back:bank_list")
     b.adjust(1)
     return b.as_markup()
 
