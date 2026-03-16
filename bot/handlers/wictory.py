@@ -405,7 +405,17 @@ async def wictory_bank_mode_bulk(cq: CallbackQuery, session: AsyncSession, state
     if cq.message:
         await _safe_edit_or_answer(
             cq,
-            "Массовый режим: можно отправить 1 сообщение = 1 ресурс, либо большой текст, где каждый ресурс заканчивается строкой со ссылкой.",
+            "Массовый режим добавления\n\n"
+            "<blockquote expandable>"
+            "Как правильно добавлять:\n"
+            "• Можно отправить 1 сообщение = 1 ресурс\n"
+            "• Можно отправить один большой текст с несколькими ресурсами\n"
+            "• Каждый ресурс считается завершённым после строки со ссылкой\n"
+            "• Пример одного ресурса:\n"
+            "Артур Альянс 43 новый\n\n"
+            "https://cloud.vmoscloud.com/screen/share/XXXX\n\n"
+            "• После этого можно сразу писать следующий ресурс в таком же формате"
+            "</blockquote>",
             reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
         )
 
