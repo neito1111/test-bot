@@ -162,6 +162,18 @@ def _resource_ident(item_id: int) -> str:
     return f"RID-{int(item_id)}"
 
 
+def _split_link_comment(raw: str | None) -> tuple[str | None, str | None]:
+    txt = str(raw or "").strip()
+    if not txt:
+        return None, None
+    lines = [x.strip() for x in txt.splitlines() if x.strip()]
+    links = [x for x in lines if x.startswith("http://") or x.startswith("https://")]
+    comments = [x for x in lines if x not in links]
+    link = "\n".join(links).strip() or None
+    comment = "\n".join(comments).strip() or None
+    return link, comment
+
+
 def _render_preview(data: dict) -> str:
     rtype = str(data.get("resource_type") or "")
     bank_name = data.get("bank_name") or "—"
@@ -187,7 +199,9 @@ def _render_preview(data: dict) -> str:
     elif rtype == "esim":
         lines.append(f"Комментарий: <code>{link}</code>" if link != "—" else "Комментарий: —")
     elif rtype == "link_esim":
-        lines.append(f"Ссылка/комментарий: <code>{link}</code>")
+        lnk, comment = _split_link_comment(link)
+        lines.append(f"Комментарий: <code>{comment or '—'}</code>")
+        lines.append(f"Ссылка: <code>{lnk or '—'}</code>")
 
     if rtype in {"esim", "link_esim"}:
         lines.append(f"Файлов Esim: <b>{len(screens)}</b>")
@@ -1032,10 +1046,13 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
     bank = await get_bank(session, int(it.bank_id))
     history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     type_value = str(getattr(it.type, 'value', '—') or '—')
+    extra_lines: list[str] = []
     if type_value == 'esim':
         data_line = f"Комментарий: <code>{it.text_data or '—'}</code>"
     elif type_value == 'link_esim':
-        data_line = f"Ссылка/комментарий: <code>{it.text_data or '—'}</code>"
+        lnk, comment = _split_link_comment(it.text_data)
+        data_line = f"Комментарий: <code>{comment or '—'}</code>"
+        extra_lines.append(f"Ссылка: <code>{lnk or '—'}</code>")
     else:
         data_line = f"Ссылка: <code>{it.text_data or '—'}</code>"
     txt = (
@@ -1046,9 +1063,11 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         f"Тип: <b>{type_value}</b>\n"
         f"Статус: <b>{getattr(it.status, 'value', '—')}</b>\n"
         f"История пользования: <code>{history_chain}</code>\n"
-        f"{data_line}\n"
-        f"Esim файлов: <b>{len(list(it.screenshots or []))}</b>"
+        f"{data_line}"
     )
+    if extra_lines:
+        txt += "\n" + "\n".join(extra_lines)
+    txt += f"\nEsim файлов: <b>{len(list(it.screenshots or []))}</b>"
     st_val = getattr(it.status, "value", "")
     can_edit_by_status = st_val in {"free", "invalid"}
     can_data = can_edit_by_status and getattr(it.type, "value", "") in {"link", "link_esim"}
