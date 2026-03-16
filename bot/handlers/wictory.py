@@ -405,7 +405,7 @@ async def wictory_bank_mode_bulk(cq: CallbackQuery, session: AsyncSession, state
     if cq.message:
         await _safe_edit_or_answer(
             cq,
-            "Массовый режим: отправляйте текстовые сообщения. Каждое входящее сообщение = 1 ресурс.",
+            "Массовый режим: можно отправить 1 сообщение = 1 ресурс, либо большой текст, где каждый ресурс заканчивается строкой со ссылкой.",
             reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
         )
 
@@ -623,18 +623,42 @@ async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSM
         await message.answer("Пустое сообщение. Отправьте текст с данными.")
         return
 
-    # Bulk rule: one incoming message = one resource (no split by lines)
-    await create_resource_pool_item(
-        session,
-        source=src,
-        bank_id=bank_id,
-        resource_type=rtype,
-        text_data=raw,
-        screenshots=[],
-        created_by_user_id=int(user.id),
-    )
+    # Bulk text supports either:
+    # 1) one whole incoming message = one resource
+    # 2) multiple resources in one message, where each resource ends with a URL line
+    blocks: list[str] = []
+    lines = [ln.rstrip() for ln in raw.splitlines()]
+    current: list[str] = []
+    for ln in lines:
+        if not ln.strip() and not current:
+            continue
+        current.append(ln)
+        if "http://" in ln or "https://" in ln:
+            block = "\n".join(x for x in current).strip()
+            if block:
+                blocks.append(block)
+            current = []
+    tail = "\n".join(x for x in current).strip()
+    if tail:
+        if blocks:
+            blocks[-1] = (blocks[-1] + "\n\n" + tail).strip()
+        else:
+            blocks.append(tail)
 
-    await message.answer("Добавлено массово: <b>1</b>")
+    created = 0
+    for block in blocks:
+        await create_resource_pool_item(
+            session,
+            source=src,
+            bank_id=bank_id,
+            resource_type=rtype,
+            text_data=block,
+            screenshots=[],
+            created_by_user_id=int(user.id),
+        )
+        created += 1
+
+    await message.answer(f"Добавлено массово: <b>{created}</b>")
 
 
 @router.message(WictoryStates.enter_data, F.text)
