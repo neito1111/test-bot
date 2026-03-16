@@ -727,6 +727,27 @@ async def _finish_payment(
     await mark_form_payment_done(session, form_id=int(form.id))
     await state.clear()
 
+    can_attach_resource = False
+    try:
+        src_for_attach = (getattr(user, "manager_source", None) or "TG") if user else "TG"
+        banks_for_source = await _list_banks_for_dm_source(session, src_for_attach)
+        bank_name_norm = str(form.bank_name or "").strip().lower()
+        bank_obj = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
+        if bank_obj:
+            free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank_obj.id), source=src_for_attach)
+            can_attach_resource = len(free_items) > 0
+    except Exception:
+        can_attach_resource = False
+
+    if can_attach_resource:
+        try:
+            b = InlineKeyboardBuilder()
+            b.button(text="🔗 Привязать анкету", callback_data=f"dm:approved_attach:{int(form.id)}")
+            b.adjust(1)
+            await message.answer("Можно сразу привязать анкету к ресурсу:", reply_markup=b.as_markup())
+        except Exception:
+            pass
+
     src = (getattr(user, "manager_source", None) or "").upper() if user else ""
     # TG: after finishing payment always return to main menu as requested
     if src == "TG":
