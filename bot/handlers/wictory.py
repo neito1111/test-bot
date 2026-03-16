@@ -12,6 +12,7 @@ from bot.keyboards import (
     kb_wictory_back_cancel,
     kb_wictory_banks,
     kb_wictory_bank_actions,
+    kb_wictory_bulk_next_actions,
     kb_wictory_edit,
     kb_wictory_invalid_actions,
     kb_wictory_invalid_edit_back_cancel,
@@ -477,7 +478,7 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
             screenshots=[str(new_item)],
             created_by_user_id=int(user.id),
         )
-        await message.answer(f"Добавлено: <code>{_resource_ident(int(item.id))}</code>")
+        await message.answer(f"Добавлено: <code>{_resource_ident(int(item.id))}</code>", reply_markup=kb_wictory_bulk_next_actions())
         return
 
     if len(shots) >= 10:
@@ -619,6 +620,40 @@ async def wictory_upload_screenshot_done(message: Message, session: AsyncSession
     await message.answer("Введите ссылку", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
 
 
+@router.callback_query(F.data == "wictory:bulk:add_more")
+async def wictory_bulk_add_more(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    data = await state.get_data()
+    rtype = str(data.get("resource_type") or "")
+    bulk_mode = bool(data.get("bulk_mode"))
+    await cq.answer()
+    if not bulk_mode:
+        if cq.message:
+            await _safe_edit_or_answer(cq, "Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+        return
+    if rtype in {"esim", "link_esim"}:
+        await state.set_state(WictoryStates.upload_screenshot)
+        if cq.message:
+            await _safe_edit_or_answer(cq, "Отправьте следующий файл/фото/видео.", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
+        return
+    await state.set_state(WictoryStates.enter_bulk)
+    if cq.message:
+        await _safe_edit_or_answer(cq, "Отправьте следующий ресурс текстом.", reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"))
+
+
+@router.callback_query(F.data == "wictory:bulk:finish")
+async def wictory_bulk_finish(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    await state.clear()
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_or_answer(cq, "Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
+
+
 @router.message(WictoryStates.enter_bulk, F.text)
 async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSMContext) -> None:
     user = await _wictory_guard(message, session)
@@ -668,7 +703,7 @@ async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSM
         )
         created += 1
 
-    await message.answer(f"Добавлено массово: <b>{created}</b>")
+    await message.answer(f"Добавлено массово: <b>{created}</b>", reply_markup=kb_wictory_bulk_next_actions())
 
 
 @router.message(WictoryStates.enter_data, F.text)

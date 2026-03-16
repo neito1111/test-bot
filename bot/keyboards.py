@@ -1126,6 +1126,14 @@ def kb_wictory_back_cancel(*, back_cb: str, cancel_cb: str = "wictory:cancel_cre
     return b.as_markup()
 
 
+def kb_wictory_bulk_next_actions() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Добавить ещё", callback_data="wictory:bulk:add_more")
+    b.button(text="Закончить создание", callback_data="wictory:bulk:finish")
+    b.adjust(1)
+    return b.as_markup()
+
+
 def kb_wictory_upload_actions(*, back_cb: str, done_cb: str = "wictory:upload_done", cancel_cb: str = "wictory:cancel_create") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text="✅ Готово", callback_data=done_cb)
