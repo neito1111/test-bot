@@ -1547,7 +1547,7 @@ async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -
         raw_payload = str(getattr(used, "text_data", "") or "")
         if raw_payload:
             try:
-                await cq.message.answer(raw_payload)
+                await cq.message.answer(f"ID ресурса: {_resource_ident(int(used.id))}\n\n{raw_payload}")
             except Exception:
                 pass
 
