@@ -5645,17 +5645,19 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
         if shots:
             kind, fid = unpack_media_item(str(shots[0]))
             if kind == "photo":
-                await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+                await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML")
             elif kind == "video":
-                await cq.message.answer_video(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+                await cq.message.answer_video(fid, caption=txt, parse_mode="HTML")
             else:
-                await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+                await cq.message.answer_document(fid, caption=txt, parse_mode="HTML")
         else:
-            await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
+            await cq.message.answer(txt, parse_mode="HTML")
 
         raw_payload = str(getattr(assigned, "text_data", "") or "").strip()
         if raw_payload:
-            await cq.message.answer(f"Сообщение от WICTORY:\n{raw_payload}")
+            await cq.message.answer(raw_payload)
+
+        await cq.message.answer("Выберите действие:", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
 
 
 @router.callback_query(F.data == "dm:resource_active")
