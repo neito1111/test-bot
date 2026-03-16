@@ -1538,14 +1538,27 @@ async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -
     await cq.answer("Ресурс привязан")
     if cq.message:
         shift = await get_active_shift(session, int(user.id))
-        text = (
-            f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>\n\n"
-            f"👤 <b>Дроп‑менеджер</b>: <b>{user.manager_tag or '—'}</b>\n"
-            f"Источник: <b>{getattr(user, 'manager_source', None) or '—'}</b>\n"
-            f"Смена: <b>{'активна' if shift else 'не активна'}</b>"
+        menu_text = (
+            f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>"
         )
         kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=bool(shift))
-        await _safe_edit_message(message=cq.message, text=text, reply_markup=kb)
+        await _safe_edit_message(message=cq.message, text=menu_text, reply_markup=kb)
+
+        try:
+            form_text = _format_form_text(form, (getattr(user, 'manager_tag', None) or '—'), manager_source=(getattr(user, 'manager_source', None) or None))
+        except Exception:
+            form_text = f"📄 <b>Анкета</b>\nID: <code>{form.id}</code>"
+        try:
+            await cq.message.answer(form_text, parse_mode="HTML")
+        except Exception:
+            pass
+
+        raw_payload = str(getattr(used, "text_data", "") or "")
+        if raw_payload:
+            try:
+                await cq.message.answer(raw_payload)
+            except Exception:
+                pass
 
 
 @router.message(DropManagerPaymentStates.card_main, F.text)
