@@ -5476,6 +5476,18 @@ def _resource_ident(item_id: int) -> str:
     return f"RID-{int(item_id)}"
 
 
+def _split_link_comment(raw: str | None) -> tuple[str | None, str | None]:
+    txt = str(raw or "").strip()
+    if not txt:
+        return None, None
+    lines = [x.strip() for x in txt.splitlines() if x.strip()]
+    links = [x for x in lines if x.startswith("http://") or x.startswith("https://")]
+    comments = [x for x in lines if x not in links]
+    link = "\n".join(links).strip() or None
+    comment = "\n".join(comments).strip() or None
+    return link, comment
+
+
 def _free_pool_counts_by_type(items: list) -> dict[str, int]:
     out = {"link": 0, "esim": 0, "link_esim": 0}
     for x in items:
@@ -5680,13 +5692,23 @@ async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> N
         return
     bank = await get_bank(session, int(it.bank_id))
     history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
+    type_val = str(getattr(it.type, 'value', '') or '').lower()
+    data_lines: list[str] = []
+    if type_val == 'esim':
+        data_lines.append(f"Комментарий: <code>{it.text_data or '—'}</code>")
+    elif type_val == 'link_esim':
+        lnk, comment = _split_link_comment(it.text_data)
+        data_lines.append(f"Комментарий: <code>{comment or '—'}</code>")
+        data_lines.append(f"Ссылка: <code>{lnk or '—'}</code>")
+    else:
+        data_lines.append(f"Ссылка: <code>{it.text_data or '—'}</code>")
     txt = (
         f"ID ресурса: <code>{int(it.id)}</code>\n"
         f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(it.type, 'value', ''))}</b>\n"
         f"История пользования: <code>{history_chain}</code>\n"
-        f"Данные: <code>{it.text_data or '—'}</code>"
+        + "\n".join(data_lines)
     )
     await cq.answer()
     if cq.message:
@@ -6015,6 +6037,16 @@ async def dm_resource_used_open(cq: CallbackQuery, session: AsyncSession) -> Non
         return
     bank = await get_bank(session, int(it.bank_id))
     history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
+    type_val = str(getattr(it.type, 'value', '') or '').lower()
+    data_lines: list[str] = []
+    if type_val == 'esim':
+        data_lines.append(f"Комментарий: <code>{it.text_data or '—'}</code>")
+    elif type_val == 'link_esim':
+        lnk, comment = _split_link_comment(it.text_data)
+        data_lines.append(f"Комментарий: <code>{comment or '—'}</code>")
+        data_lines.append(f"Ссылка: <code>{lnk or '—'}</code>")
+    else:
+        data_lines.append(f"Ссылка: <code>{it.text_data or '—'}</code>")
     txt = (
         f"<b>Подтянутый ресурс</b>\n"
         f"ID ресурса: <code>{int(it.id)}</code>\n"
@@ -6023,11 +6055,21 @@ async def dm_resource_used_open(cq: CallbackQuery, session: AsyncSession) -> Non
         f"Тип: <b>{_pool_type_ru(getattr(it.type, 'value', ''))}</b>\n"
         f"Анкета: <code>#{int(form.id)}</code>\n"
         f"История пользования: <code>{history_chain}</code>\n"
-        f"Данные: <code>{it.text_data or '—'}</code>"
+        + "\n".join(data_lines)
     )
     await cq.answer()
     if cq.message:
-        await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_used_actions())
+        shots = list(getattr(it, "screenshots", None) or [])
+        if shots:
+            kind, fid = unpack_media_item(str(shots[0]))
+            if kind == "photo":
+                await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_used_actions())
+            elif kind == "video":
+                await cq.message.answer_video(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_used_actions())
+            else:
+                await cq.message.answer_document(fid, caption=txt, parse_mode="HTML", reply_markup=kb_dm_resource_used_actions())
+        else:
+            await _safe_edit_message(message=cq.message, text=txt, reply_markup=kb_dm_resource_used_actions())
 
 
 @router.callback_query()
