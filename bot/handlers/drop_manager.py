@@ -1537,19 +1537,36 @@ async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -
 
     await cq.answer("Ресурс привязан")
     if cq.message:
+        raw_payload = str(getattr(used, "text_data", "") or "")
+        payload_text = f"ID ресурса: {_resource_ident(int(used.id))}\n\n{raw_payload}" if raw_payload else f"ID ресурса: {_resource_ident(int(used.id))}"
+
+        shots = list(getattr(used, "screenshots", None) or [])
+        if shots:
+            try:
+                kind, fid = unpack_media_item(str(shots[0]))
+                if kind == "photo":
+                    await cq.message.answer_photo(fid, caption=payload_text)
+                elif kind == "video":
+                    await cq.message.answer_video(fid, caption=payload_text)
+                else:
+                    await cq.message.answer_document(fid, caption=payload_text)
+            except Exception:
+                try:
+                    await cq.message.answer(payload_text)
+                except Exception:
+                    pass
+        else:
+            try:
+                await cq.message.answer(payload_text)
+            except Exception:
+                pass
+
         shift = await get_active_shift(session, int(user.id))
         menu_text = (
             f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>"
         )
         kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=bool(shift))
-        await _safe_edit_message(message=cq.message, text=menu_text, reply_markup=kb)
-
-        raw_payload = str(getattr(used, "text_data", "") or "")
-        if raw_payload:
-            try:
-                await cq.message.answer(f"ID ресурса: {_resource_ident(int(used.id))}\n\n{raw_payload}")
-            except Exception:
-                pass
+        await cq.message.answer(menu_text, reply_markup=kb)
 
 
 @router.message(DropManagerPaymentStates.card_main, F.text)
