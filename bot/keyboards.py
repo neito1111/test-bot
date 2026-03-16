@@ -114,7 +114,16 @@ def kb_dm_approved_attach_type_pick(form_id: int, available_types: list[str] | t
         b.button(text="Esim", callback_data=f"dm:approved_attach_type:{int(form_id)}:esim")
     if "link_esim" in picked:
         b.button(text="Ссылка + Esim", callback_data=f"dm:approved_attach_type:{int(form_id)}:link_esim")
-    b.button(text="⬅️ Назад", callback_data=f"dm:approved_no_pay_open:{int(form_id)}")
+    b.button(text="⬅️ Назад", callback_data=f"dm:payment_prompt:{int(form_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_post_payment_actions(form_id: int, *, can_attach: bool) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if can_attach:
+        b.button(text="🔗 Привязать анкету", callback_data=f"dm:approved_attach:{int(form_id)}")
+    b.button(text="Продолжить", callback_data=f"dm:payment_continue:{int(form_id)}")
     b.adjust(1)
     return b.as_markup()
 

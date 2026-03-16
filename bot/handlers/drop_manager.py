@@ -34,6 +34,7 @@ from bot.keyboards import (
     kb_dm_main_inline,
     kb_dm_payment_card_with_back,
     kb_dm_approved_attach_type_pick,
+    kb_dm_post_payment_actions,
     kb_dm_payment_next_actions,
     kb_dm_shift_comment_inline,
     kb_dm_source_pick_inline,
@@ -679,6 +680,29 @@ async def _send_form_preview_only(*, bot: Any, chat_id: int, text: str, photos: 
         return
 
 
+async def _show_post_payment_prompt(*, message: Message, session: AsyncSession, user: User | None, form: Form) -> bool:
+    can_attach_resource = False
+    try:
+        src_for_attach = (getattr(user, "manager_source", None) or "TG") if user else "TG"
+        banks_for_source = await _list_banks_for_dm_source(session, src_for_attach)
+        bank_name_norm = str(form.bank_name or "").strip().lower()
+        bank_obj = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
+        if bank_obj:
+            free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank_obj.id), source=src_for_attach)
+            can_attach_resource = len(free_items) > 0
+    except Exception:
+        can_attach_resource = False
+
+    try:
+        await message.answer(
+            "Можно привязать анкету к ресурсу или продолжить.",
+            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=can_attach_resource),
+        )
+        return True
+    except Exception:
+        return False
+
+
 async def _finish_payment(
     *,
     message: Message,
@@ -727,54 +751,9 @@ async def _finish_payment(
     await mark_form_payment_done(session, form_id=int(form.id))
     await state.clear()
 
-    can_attach_resource = False
-    try:
-        src_for_attach = (getattr(user, "manager_source", None) or "TG") if user else "TG"
-        banks_for_source = await _list_banks_for_dm_source(session, src_for_attach)
-        bank_name_norm = str(form.bank_name or "").strip().lower()
-        bank_obj = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
-        if bank_obj:
-            free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank_obj.id), source=src_for_attach)
-            can_attach_resource = len(free_items) > 0
-    except Exception:
-        can_attach_resource = False
-
-    if can_attach_resource:
-        try:
-            b = InlineKeyboardBuilder()
-            b.button(text="🔗 Привязать анкету", callback_data=f"dm:approved_attach:{int(form.id)}")
-            b.adjust(1)
-            await message.answer("Можно сразу привязать анкету к ресурсу:", reply_markup=b.as_markup())
-        except Exception:
-            pass
-
-    src = (getattr(user, "manager_source", None) or "").upper() if user else ""
-    # TG: after finishing payment always return to main menu as requested
-    if src == "TG":
-        try:
-            if actor_id:
-                dm_user = await get_user_by_tg_id(session, actor_id)
-                if dm_user and dm_user.role == UserRole.DROP_MANAGER:
-                    shift = await get_active_shift(session, dm_user.id)
-                    src_line = getattr(dm_user, "manager_source", None) or "—"
-                    text = (
-                        f"👤 <b>Дроп‑менеджер</b>: <b>{dm_user.manager_tag or '—'}</b>\n"
-                        f"Источник: <b>{src_line}</b>\n"
-                        f"Смена: <b>{'активна' if shift else 'не активна'}</b>"
-                    )
-                    kb = await _build_dm_main_kb(session=session, user_id=int(dm_user.id), shift_active=bool(shift))
-                    await message.bot.send_message(int(actor_id), text, reply_markup=kb)
-                    return
-        except Exception:
-            pass
-        await _render_dm_menu(message, session)
+    if await _show_post_payment_prompt(message=message, session=session, user=user, form=form):
         return
 
-    forms_left = await list_dm_approved_without_payment(session, manager_user_id=int(user.id) if user else 0, limit=30)
-    forms_left = [f for f in forms_left if int(getattr(f, "id", 0)) != int(form.id)]
-    if forms_left:
-        await _render_dm_approved_no_pay(message, session, state)
-        return
     await _render_dm_menu(message, session)
 
 
@@ -1416,6 +1395,52 @@ async def dm_approved_no_pay_open_cb(cq: CallbackQuery, session: AsyncSession, s
         await cq.message.answer("Выберите действие:", reply_markup=kb_dm_payment_card_with_back(int(form.id)))
 
 
+@router.callback_query(F.data.startswith("dm:payment_prompt:"))
+async def dm_payment_prompt_cb(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+    try:
+        form_id = int((cq.data or "").split(":")[-1])
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    form = await get_form(session, form_id)
+    if not form or int(form.manager_id or 0) != int(user.id):
+        await cq.answer("Анкета не найдена", show_alert=True)
+        return
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(
+            message=cq.message,
+            text="Можно привязать анкету к ресурсу или продолжить.",
+            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=True),
+        )
+
+
+@router.callback_query(F.data.startswith("dm:payment_continue:"))
+async def dm_payment_continue_cb(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+    await cq.answer()
+    if cq.message:
+        shift = await get_active_shift(session, int(user.id))
+        text = (
+            f"👤 <b>Дроп‑менеджер</b>: <b>{user.manager_tag or '—'}</b>\n"
+            f"Источник: <b>{getattr(user, 'manager_source', None) or '—'}</b>\n"
+            f"Смена: <b>{'активна' if shift else 'не активна'}</b>"
+        )
+        kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=bool(shift))
+        await _safe_edit_message(message=cq.message, text=text, reply_markup=kb)
+
+
 @router.callback_query(F.data.startswith("dm:approved_attach:"))
 async def dm_approved_attach_start_cb(cq: CallbackQuery, session: AsyncSession) -> None:
     if not cq.from_user:
@@ -1512,11 +1537,15 @@ async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -
 
     await cq.answer("Ресурс привязан")
     if cq.message:
-        await _safe_edit_message(
-            message=cq.message,
-            text=f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>",
-            reply_markup=kb_dm_payment_card_with_back(int(form.id)),
+        shift = await get_active_shift(session, int(user.id))
+        text = (
+            f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>\n\n"
+            f"👤 <b>Дроп‑менеджер</b>: <b>{user.manager_tag or '—'}</b>\n"
+            f"Источник: <b>{getattr(user, 'manager_source', None) or '—'}</b>\n"
+            f"Смена: <b>{'активна' if shift else 'не активна'}</b>"
         )
+        kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=bool(shift))
+        await _safe_edit_message(message=cq.message, text=text, reply_markup=kb)
 
 
 @router.message(DropManagerPaymentStates.card_main, F.text)
