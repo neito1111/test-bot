@@ -396,9 +396,23 @@ async def wictory_bank_mode_bulk(cq: CallbackQuery, session: AsyncSession, state
     if rtype in {"esim", "link_esim"}:
         await state.set_state(WictoryStates.upload_screenshot)
         if cq.message:
+            media_help = (
+                "Массовый режим добавления\n\n"
+                "<blockquote expandable>"
+                "Как правильно добавлять:\n"
+                "• Каждое медиа-сообщение = 1 ресурс\n"
+                "• Под картинкой имеется в виду: фото / файл / видео\n"
+                "• Для ESIM: отправляйте медиа + в подписи комментарий\n"
+                "• Для Ссылка+ESIM: отправляйте медиа + в подписи сначала комментарий, потом ссылку\n"
+                "• Пример подписи для Ссылка+ESIM:\n"
+                "Андрей Альянс 45\n"
+                "https://example.com/...\n"
+                "• Всё это должно быть в одном сообщении с медиа"
+                "</blockquote>"
+            )
             await _safe_edit_or_answer(
                 cq,
-                "Массовый режим: отправляйте Esim файлами (каждое сообщение = 1 ресурс). Для ESIM подпись сохранится как комментарий.\nКогда закончите — нажмите '❌ Отмена' или вернитесь назад.",
+                media_help,
                 reply_markup=kb_wictory_back_cancel(back_cb="wictory:back:bank"),
             )
         return
