@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from bot.keyboards import DEFAULT_BANKS
-from bot.models import Form, FormStatus, User, UserRole
+from bot.models import BankCondition, Form, FormStatus, User, UserRole
 from bot.repositories import create_form
 from bot.states import DropManagerFormStates
 
@@ -31,6 +31,11 @@ class DummyState:
     @property
     def state(self) -> object | None:
         return self._state
+
+
+async def _ensure_bank(session, name: str) -> None:
+    session.add(BankCondition(name=name))
+    await session.flush()
 
 
 class DummyCallbackQuery:
@@ -101,6 +106,7 @@ async def test_bank_pick_sets_password_state(session, monkeypatch) -> None:
     await state.update_data(form_id=form.id)
 
     bank_name = DEFAULT_BANKS[0]
+    await _ensure_bank(session, bank_name)
     cq = DummyCallbackQuery(data=f"dm:bank:{bank_name}", from_user_id=user.tg_id)
 
     await drop_manager.dm_bank_pick_cb(cq, session, state)
@@ -139,6 +145,7 @@ async def test_bank_pick_duplicate_warning_text(session, monkeypatch) -> None:
     state = DummyState()
     await state.update_data(form_id=form.id)
 
+    await _ensure_bank(session, "Моно")
     cq = DummyCallbackQuery(data="dm:bank:Моно", from_user_id=user.tg_id)
     await drop_manager.dm_bank_pick_cb(cq, session, state)
 
