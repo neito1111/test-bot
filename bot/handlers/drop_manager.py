@@ -1537,29 +1537,40 @@ async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -
 
     await cq.answer("Ресурс привязан")
     if cq.message:
-        raw_payload = str(getattr(used, "text_data", "") or "")
-        payload_text = f"ID ресурса: {_resource_ident(int(used.id))}\n\n{raw_payload}" if raw_payload else f"ID ресурса: {_resource_ident(int(used.id))}"
+        type_val = str(getattr(getattr(used, "type", None), "value", "") or "").lower()
+        bank = await get_bank(session, int(used.bank_id))
+        history_chain = str(getattr(used, "usage_history", "") or "").strip() or "—"
+        data_lines = _pool_data_lines(type_val=type_val, text_data=getattr(used, "text_data", None))
+        txt = (
+            "<b>Привязанный ресурс</b>\n"
+            f"ID ресурса: <code>{int(used.id)}</code>\n"
+            f"Код ресурса: <code>{_resource_ident(int(used.id))}</code>\n"
+            f"Банк: <b>{bank.name if bank else '—'}</b>\n"
+            f"Тип: <b>{_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}</b>\n"
+            f"Анкета: <code>#{int(form.id)}</code>\n"
+            f"История пользования: <code>{history_chain}</code>\n"
+            + "\n".join(data_lines)
+        )
 
         shots = list(getattr(used, "screenshots", None) or [])
         if shots:
             try:
                 kind, fid = unpack_media_item(str(shots[0]))
                 if kind == "photo":
-                    await cq.message.answer_photo(fid, caption=payload_text)
+                    await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML")
                 elif kind == "video":
-                    await cq.message.answer_video(fid, caption=payload_text)
+                    await cq.message.answer_video(fid, caption=txt, parse_mode="HTML")
                 else:
-                    await cq.message.answer_document(fid, caption=payload_text)
+                    await cq.message.answer_document(fid, caption=txt, parse_mode="HTML")
             except Exception:
-                try:
-                    await cq.message.answer(payload_text)
-                except Exception:
-                    pass
+                await cq.message.answer(txt, parse_mode="HTML")
         else:
-            try:
-                await cq.message.answer(payload_text)
-            except Exception:
-                pass
+            await cq.message.answer(txt, parse_mode="HTML")
+
+        raw_payload = str(getattr(used, "text_data", "") or "").strip()
+        if raw_payload and _pool_type_has_link(type_val):
+            # "Message from WICTORY" should be duplicated only for link-containing items.
+            await cq.message.answer(raw_payload)
 
         shift = await get_active_shift(session, int(user.id))
         menu_text = (
@@ -5472,6 +5483,23 @@ def _pool_type_ru(t: str) -> str:
     }.get((t or "").lower(), t or "—")
 
 
+def _pool_type_has_link(type_val: str) -> bool:
+    return (type_val or "").lower() in {"link", "link_esim"}
+
+
+def _pool_data_lines(*, type_val: str, text_data: str | None) -> list[str]:
+    t = (type_val or "").lower()
+    if t == "esim":
+        return [f"Комментарий: <code>{text_data or '—'}</code>"]
+    if t == "link_esim":
+        lnk, comment = _split_link_comment(text_data)
+        return [
+            f"Комментарий: <code>{comment or '—'}</code>",
+            f"Ссылка: <code>{lnk or '—'}</code>",
+        ]
+    return [f"Ссылка: <code>{text_data or '—'}</code>"]
+
+
 def _resource_ident(item_id: int) -> str:
     return f"RID-{int(item_id)}"
 
@@ -5637,7 +5665,12 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
         f"Банк: <b>{bank.name if bank else '—'}</b>\n"
         f"Тип: <b>{_pool_type_ru(getattr(assigned.type, 'value', ''))}</b>\n"
         f"История пользования: <code>{history_chain}</code>\n"
-        f"Данные: <code>{assigned.text_data or '—'}</code>"
+        + "\n".join(
+            _pool_data_lines(
+                type_val=str(getattr(getattr(assigned, "type", None), "value", "") or "").lower(),
+                text_data=getattr(assigned, "text_data", None),
+            )
+        )
     )
     await cq.answer()
     if cq.message:
@@ -5653,8 +5686,10 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
         else:
             await cq.message.answer(txt, parse_mode="HTML")
 
+        type_val = str(getattr(getattr(assigned, "type", None), "value", "") or "").lower()
         raw_payload = str(getattr(assigned, "text_data", "") or "").strip()
-        if raw_payload:
+        if raw_payload and _pool_type_has_link(type_val):
+            # Do not duplicate WICTORY text for pure eSIM items.
             await cq.message.answer(raw_payload)
 
         await cq.message.answer("Выберите действие:", reply_markup=kb_dm_resource_active_actions(int(assigned.id)))
