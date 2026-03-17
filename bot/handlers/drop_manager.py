@@ -86,6 +86,7 @@ from bot.repositories import (
     list_dm_approved_without_payment,
     list_dm_active_pool_items,
     list_free_pool_items_for_bank,
+    count_free_pool_items_by_bank,
     assign_pool_item_to_dm,
     count_dm_active_pool_items,
     count_dm_active_pool_items_for_bank,
@@ -1303,6 +1304,37 @@ async def start_work(message: Message, session: AsyncSession) -> None:
 @router.callback_query(F.data == "dm:menu")
 async def dm_menu_cb(cq: CallbackQuery, session: AsyncSession) -> None:
     await _render_dm_menu(cq, session)
+
+
+@router.callback_query(F.data == "dm:actual")
+async def dm_actual_cb(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        return
+    shift = await get_active_shift(session, int(user.id))
+    if not shift:
+        await cq.answer("Сначала начните работу", show_alert=True)
+        return
+
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    banks = await list_banks(session)
+    counts = await count_free_pool_items_by_bank(session, source=source)
+    cnt_by_id = {bid: c for bid, c in counts}
+
+    lines: list[str] = []
+    for b in banks:
+        lines.append(f"{getattr(b, 'name', '—')} - {int(cnt_by_id.get(int(b.id), 0))}")
+    if not lines:
+        text = "Банков нет."
+    else:
+        text = "<b>Актуал по ресурсам (FREE)</b>\n\n" + "\n".join(lines)
+
+    kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=True)
+    await cq.answer()
+    if cq.message:
+        await cq.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data == "dm:my_forms")

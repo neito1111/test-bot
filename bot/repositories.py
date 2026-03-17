@@ -741,6 +741,20 @@ async def list_free_pool_items_for_bank(session: AsyncSession, *, bank_id: int, 
     return list(res.scalars().all())
 
 
+async def count_free_pool_items_by_bank(session: AsyncSession, *, source: str) -> list[tuple[int, int]]:
+    """
+    Returns a list of (bank_id, free_count) for the given source.
+    Counts only items with status=FREE.
+    """
+    res = await session.execute(
+        select(ResourcePool.bank_id, func.count(ResourcePool.id))
+        .where(ResourcePool.source == source.upper(), ResourcePool.status == ResourceStatus.FREE)
+        .group_by(ResourcePool.bank_id)
+        .order_by(ResourcePool.bank_id.asc())
+    )
+    return [(int(row[0]), int(row[1])) for row in res.all()]
+
+
 async def assign_pool_item_to_dm(session: AsyncSession, *, item_id: int, dm_user_id: int) -> ResourcePool | None:
     item = await get_pool_item(session, int(item_id))
     if not item or item.status != ResourceStatus.FREE:

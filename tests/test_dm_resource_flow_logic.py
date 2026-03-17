@@ -4,7 +4,7 @@ import pytest
 
 from bot.keyboards import kb_dm_resource_type_pick
 from bot.models import Form, FormStatus, ResourcePool, ResourceStatus, ResourceType, User, UserRole
-from bot.repositories import count_dm_active_pool_items_for_bank, form_has_linked_pool_item, list_dm_used_pool_items
+from bot.repositories import count_dm_active_pool_items_for_bank, count_free_pool_items_by_bank, form_has_linked_pool_item, list_dm_used_pool_items
 
 
 async def _mk_user(session, tg_id: int, role: UserRole = UserRole.DROP_MANAGER) -> User:
@@ -82,6 +82,24 @@ async def test_form_has_linked_pool_item_and_used_list(session) -> None:
 
     used = await list_dm_used_pool_items(session, dm_user_id=dm.id)
     assert [x.id for x in used] == [item.id]
+
+
+@pytest.mark.asyncio
+async def test_count_free_pool_items_by_bank_counts_only_free_and_source(session) -> None:
+    dm = await _mk_user(session, 1301)
+    w = await _mk_user(session, 1302, role=UserRole.WICTORY)
+
+    # two FREE in TG, one FREE in FB, one ASSIGNED in TG
+    it1 = await _mk_pool_item(session, bank_id=1, created_by_user_id=w.id, status=ResourceStatus.FREE)
+    it2 = await _mk_pool_item(session, bank_id=1, created_by_user_id=w.id, status=ResourceStatus.FREE)
+    it3 = await _mk_pool_item(session, bank_id=2, created_by_user_id=w.id, status=ResourceStatus.FREE)
+    it3.source = "FB"
+    it4 = await _mk_pool_item(session, bank_id=2, created_by_user_id=w.id, status=ResourceStatus.ASSIGNED, assigned_to_user_id=dm.id)
+    it4.source = "TG"
+    await session.flush()
+
+    out = await count_free_pool_items_by_bank(session, source="TG")
+    assert dict(out) == {1: 2}
 
 
 def test_kb_dm_resource_type_pick_only_available() -> None:
