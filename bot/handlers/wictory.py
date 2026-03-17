@@ -174,6 +174,15 @@ def _split_link_comment(raw: str | None) -> tuple[str | None, str | None]:
     return link, comment
 
 
+def _compose_link_esim_payload(comment: str | None, link: str | None) -> str:
+    # Store as a single text_data field: comment lines + blank line + link(s).
+    c = (comment or "").strip()
+    l = (link or "").strip()
+    if c and l:
+        return f"{c}\n\n{l}"
+    return c or l
+
+
 def _render_preview(data: dict) -> str:
     rtype = str(data.get("resource_type") or "")
     bank_name = data.get("bank_name") or "—"
@@ -752,15 +761,30 @@ async def wictory_enter_data(message: Message, session: AsyncSession, state: FSM
         await message.answer("Данные обновлены", reply_markup=kb_wictory_main_inline())
         return
 
-    if data.get("item_edit_mode") == "data" and data.get("item_edit_id"):
-        await wictory_update_item(
-            session,
-            item_id=int(data.get("item_edit_id")),
-            wictory_user_id=int(user.id),
-            text_data=txt,
-        )
+    item_edit_id = int(data.get("item_edit_id") or 0)
+    item_edit_mode = str(data.get("item_edit_mode") or "")
+    if item_edit_id and item_edit_mode in {"data", "link", "comment"}:
+        it = await get_pool_item(session, item_edit_id)
+        if it and int(it.created_by_user_id) == int(user.id):
+            tval = str(getattr(it.type, "value", "") or "").lower()
+            new_text = txt
+
+            # For link_esim we keep link/comment parts separate on edit.
+            if tval == "link_esim":
+                old_link, old_comment = _split_link_comment(getattr(it, "text_data", None))
+                if item_edit_mode == "comment":
+                    new_text = _compose_link_esim_payload(txt, old_link)
+                elif item_edit_mode == "link":
+                    new_text = _compose_link_esim_payload(old_comment, txt)
+
+            await wictory_update_item(
+                session,
+                item_id=item_edit_id,
+                wictory_user_id=int(user.id),
+                text_data=new_text,
+            )
         await state.clear()
-        await message.answer("Ссылка обновлена", reply_markup=kb_wictory_main_inline())
+        await message.answer("Данные обновлены", reply_markup=kb_wictory_main_inline())
         return
 
     rtype = str(data.get("resource_type") or "")
@@ -1070,24 +1094,19 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
     txt += f"\nEsim файлов: <b>{len(list(it.screenshots or []))}</b>"
     st_val = getattr(it.status, "value", "")
     can_edit_by_status = st_val in {"free", "invalid"}
-    # text_data is editable for link and eSIM resources (eSIM uses it as "comment")
-    can_data = can_edit_by_status and getattr(it.type, "value", "") in {"link", "link_esim", "esim"}
+    tval = str(getattr(it.type, "value", "") or "").lower()
+    can_edit_link = can_edit_by_status and tval in {"link", "link_esim"}
+    can_edit_comment = can_edit_by_status and tval in {"esim", "link_esim"}
     can_media = can_edit_by_status and getattr(it.type, "value", "") in {"esim", "link_esim"}
     can_delete = st_val != "assigned"
     can_edit_meta = can_edit_by_status
-    tval = str(getattr(it.type, "value", "") or "").lower()
-    edit_data_text = {
-        "esim": "Редактировать комментарий",
-        "link_esim": "Редактировать данные",
-        "link": "Редактировать ссылку",
-    }.get(tval, "Редактировать данные")
     kb = kb_wictory_item_actions(
         item_id,
-        can_edit_data=can_data,
+        can_edit_link=can_edit_link,
+        can_edit_comment=can_edit_comment,
         can_edit_media=can_media,
         can_delete=can_delete,
         can_edit_meta=can_edit_meta,
-        edit_data_text=edit_data_text,
     )
     await state.update_data(item_edit_id=item_id)
     await cq.answer()
@@ -1131,6 +1150,46 @@ async def wictory_item_edit_data_start(cq: CallbackQuery, session: AsyncSession,
         elif tval == "link_esim":
             prompt = "Введите новый комментарий и ссылку"
         await _safe_edit_or_answer(cq, prompt, reply_markup=kb_wictory_item_edit_back_cancel(item_id))
+
+
+@router.callback_query(F.data.startswith("wictory:item:edit_comment:"))
+async def wictory_item_edit_comment_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    await state.update_data(item_edit_id=item_id, item_edit_mode="comment")
+    await state.set_state(WictoryStates.enter_data)
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_or_answer(cq, "Введите новый комментарий", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
+
+
+@router.callback_query(F.data.startswith("wictory:item:edit_link:"))
+async def wictory_item_edit_link_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    item_id = int((cq.data or "").split(":")[-1])
+    it = await get_pool_item(session, item_id)
+    if not it or int(it.created_by_user_id) != int(user.id):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    await state.update_data(item_edit_id=item_id, item_edit_mode="link")
+    await state.set_state(WictoryStates.enter_data)
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_or_answer(cq, "Введите новую ссылку", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_media:"))

@@ -53,14 +53,15 @@ def test_kb_wictory_bulk_next_actions_buttons() -> None:
     assert labels == ["Добавить ещё", "Закончить создание"]
 
 
-def test_kb_wictory_item_actions_can_override_edit_data_text() -> None:
+def test_kb_wictory_item_actions_link_esim_has_link_and_comment_buttons() -> None:
     kb = kb_wictory_item_actions(
         13,
-        can_edit_data=True,
+        can_edit_link=True,
+        can_edit_comment=True,
         can_edit_media=False,
         can_delete=False,
         can_edit_meta=False,
-        edit_data_text="Редактировать комментарий",
     )
     labels = [b.text for row in kb.inline_keyboard for b in row]
+    assert "Редактировать ссылку" in labels
     assert "Редактировать комментарий" in labels
