@@ -1264,10 +1264,18 @@ def kb_wictory_items_list(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_wictory_item_actions(item_id: int, *, can_edit_data: bool, can_edit_media: bool, can_delete: bool, can_edit_meta: bool) -> InlineKeyboardMarkup:
+def kb_wictory_item_actions(
+    item_id: int,
+    *,
+    can_edit_data: bool,
+    can_edit_media: bool,
+    can_delete: bool,
+    can_edit_meta: bool,
+    edit_data_text: str = "Редактировать ссылку",
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if can_edit_data:
-        b.button(text="Редактировать ссылку", callback_data=f"wictory:item:edit_data:{int(item_id)}")
+        b.button(text=edit_data_text, callback_data=f"wictory:item:edit_data:{int(item_id)}")
     if can_edit_media:
         b.button(text="Редактировать Esim", callback_data=f"wictory:item:edit_media:{int(item_id)}")
     if can_edit_meta:

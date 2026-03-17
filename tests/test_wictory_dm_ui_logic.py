@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from bot.handlers.drop_manager import _split_link_comment as dm_split_link_comment
 from bot.handlers.wictory import _render_preview, _split_link_comment as wictory_split_link_comment
-from bot.keyboards import kb_dm_post_payment_actions, kb_wictory_bulk_next_actions
+from bot.keyboards import kb_dm_post_payment_actions, kb_wictory_bulk_next_actions, kb_wictory_item_actions
 
 
 def test_split_link_comment_wictory_link_esim_payload() -> None:
@@ -51,3 +51,16 @@ def test_kb_wictory_bulk_next_actions_buttons() -> None:
     kb = kb_wictory_bulk_next_actions()
     labels = [b.text for row in kb.inline_keyboard for b in row]
     assert labels == ["Добавить ещё", "Закончить создание"]
+
+
+def test_kb_wictory_item_actions_can_override_edit_data_text() -> None:
+    kb = kb_wictory_item_actions(
+        13,
+        can_edit_data=True,
+        can_edit_media=False,
+        can_delete=False,
+        can_edit_meta=False,
+        edit_data_text="Редактировать комментарий",
+    )
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    assert "Редактировать комментарий" in labels

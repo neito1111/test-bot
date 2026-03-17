@@ -1070,16 +1070,24 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
     txt += f"\nEsim файлов: <b>{len(list(it.screenshots or []))}</b>"
     st_val = getattr(it.status, "value", "")
     can_edit_by_status = st_val in {"free", "invalid"}
-    can_data = can_edit_by_status and getattr(it.type, "value", "") in {"link", "link_esim"}
+    # text_data is editable for link and eSIM resources (eSIM uses it as "comment")
+    can_data = can_edit_by_status and getattr(it.type, "value", "") in {"link", "link_esim", "esim"}
     can_media = can_edit_by_status and getattr(it.type, "value", "") in {"esim", "link_esim"}
     can_delete = st_val != "assigned"
     can_edit_meta = can_edit_by_status
+    tval = str(getattr(it.type, "value", "") or "").lower()
+    edit_data_text = {
+        "esim": "Редактировать комментарий",
+        "link_esim": "Редактировать данные",
+        "link": "Редактировать ссылку",
+    }.get(tval, "Редактировать данные")
     kb = kb_wictory_item_actions(
         item_id,
         can_edit_data=can_data,
         can_edit_media=can_media,
         can_delete=can_delete,
         can_edit_meta=can_edit_meta,
+        edit_data_text=edit_data_text,
     )
     await state.update_data(item_edit_id=item_id)
     await cq.answer()
@@ -1110,11 +1118,19 @@ async def wictory_item_edit_data_start(cq: CallbackQuery, session: AsyncSession,
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
         await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
         return
+    tval = str(getattr(it.type, "value", "") or "").lower()
     await state.update_data(item_edit_id=item_id, item_edit_mode="data")
     await state.set_state(WictoryStates.enter_data)
     await cq.answer()
     if cq.message:
-        await _safe_edit_or_answer(cq, "Введите новую ссылку", reply_markup=kb_wictory_item_edit_back_cancel(item_id))
+        prompt = "Введите новые данные"
+        if tval == "esim":
+            prompt = "Введите новый комментарий"
+        elif tval == "link":
+            prompt = "Введите новую ссылку"
+        elif tval == "link_esim":
+            prompt = "Введите новый комментарий и ссылку"
+        await _safe_edit_or_answer(cq, prompt, reply_markup=kb_wictory_item_edit_back_cancel(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:edit_media:"))
