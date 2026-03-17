@@ -1324,12 +1324,17 @@ async def dm_actual_cb(cq: CallbackQuery, session: AsyncSession) -> None:
     cnt_by_id = {bid: c for bid, c in counts}
 
     lines: list[str] = []
+    total_free = 0
     for b in banks:
-        lines.append(f"{getattr(b, 'name', '—')} - {int(cnt_by_id.get(int(b.id), 0))}")
+        c = int(cnt_by_id.get(int(b.id), 0))
+        if c <= 0:
+            continue
+        total_free += c
+        lines.append(f"{getattr(b, 'name', '—')} - {c}")
     if not lines:
-        text = "Банков нет."
+        text = "<b>Актуал по ресурсам (FREE)</b>\n\nСвободных ресурсов нет."
     else:
-        text = "<b>Актуал по ресурсам (FREE)</b>\n\n" + "\n".join(lines)
+        text = "<b>Актуал по ресурсам (FREE)</b>\n\n" + "\n".join(lines) + f"\n\nВсего: <b>{total_free}</b>"
 
     kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=True)
     await cq.answer()
