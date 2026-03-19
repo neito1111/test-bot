@@ -2038,7 +2038,7 @@ async def dm_my_form_resume_cb(cq: CallbackQuery, session: AsyncSession, state: 
         if user_source == "TG":
             await state.set_state(DropManagerFormStates.phone)
             await _prompt(
-                "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
+                "Напишите номер или перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
                 kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
             )
         else:
@@ -2074,7 +2074,7 @@ async def dm_my_form_resume_cb(cq: CallbackQuery, session: AsyncSession, state: 
         await state.set_state(DropManagerFormStates.phone)
         back_cb = "dm:cancel_form" if user_source == "TG" else "dm:back_to_forward"
         await _prompt(
-            "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
+            "Напишите номер или перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
             kb_dm_back_cancel_inline(back_cb=back_cb),
         )
         return
@@ -2605,7 +2605,7 @@ async def create_form_entry(message: Message, session: AsyncSession, state: FSMC
         form.referral_user = None
         await state.set_state(DropManagerFormStates.phone)
         await message.answer(
-            "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
+            "Напишите номер или перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
             reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
         )
     else:
@@ -2647,7 +2647,7 @@ async def dm_create_form_cb(cq: CallbackQuery, session: AsyncSession, state: FSM
         await state.set_state(DropManagerFormStates.phone)
         if cq.message:
             await cq.message.edit_text(
-                "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
+                "Напишите номер или перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
             )
     else:
@@ -2705,7 +2705,7 @@ async def dm_back_to_traffic_cb(cq: CallbackQuery, session: AsyncSession, state:
         await state.set_state(DropManagerFormStates.phone)
         if cq.message:
             await cq.message.edit_text(
-                "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
+                "Напишите номер или перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
             )
         return
@@ -2912,7 +2912,7 @@ async def form_direct_forward(message: Message, session: AsyncSession, state: FS
         form.referral_user = None
         await state.set_state(DropManagerFormStates.phone)
         await message.answer(
-            "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
+            "Напишите номер или перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
             reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
         )
         return
@@ -2927,7 +2927,7 @@ async def form_direct_forward(message: Message, session: AsyncSession, state: FS
         payload_field="direct_user",
         next_state=DropManagerFormStates.phone,
         next_prompt_text=(
-            "Напишите номер и перешлите его в бота.\n"
+            "Напишите номер или перешлите его в бота.\n"
             "Сообщение должно содержать <b>только номер</b> и ничего больше:"
         ),
         next_reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_forward"),
@@ -2974,7 +2974,7 @@ async def form_referral_forward_2(message: Message, session: AsyncSession, state
         payload_field="referral_user",
         next_state=DropManagerFormStates.phone,
         next_prompt_text=(
-            "Напишите номер и перешлите его в бота.\n"
+            "Напишите номер или перешлите его в бота.\n"
             "Сообщение должно содержать <b>только номер</b> и ничего больше:"
         ),
         next_reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_forward"),
@@ -3068,7 +3068,7 @@ async def form_forward_manual_name(message: Message, session: AsyncSession, stat
         return
     await state.set_state(DropManagerFormStates.phone)
     await message.answer(
-        "Напишите номер и перешлите его в бота.\n"
+        "Напишите номер или перешлите его в бота.\n"
         "Сообщение должно содержать <b>только номер</b> и ничего больше:",
         reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_forward"),
     )
@@ -3165,7 +3165,7 @@ async def dm_back_to_phone_cb(cq: CallbackQuery, state: FSMContext) -> None:
         await _safe_edit_message(
             message=cq.message,
             text=(
-                "Напишите номер и перешлите его в бота.\n"
+                "Напишите номер или перешлите его в бота.\n"
                 "Сообщение должно содержать <b>только номер</b> и ничего больше:"
             ),
             reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_forward"),
@@ -5248,7 +5248,7 @@ async def form_back_to_previous_forward(message: Message, session: AsyncSession,
 async def form_back_to_phone(message: Message, state: FSMContext) -> None:
     await state.set_state(DropManagerFormStates.phone)
     await message.answer(
-        "Напишите номер и перешлите его в бота.\n"
+        "Напишите номер или перешлите его в бота.\n"
         "Сообщение должно содержать <b>только номер</b> и ничего больше:",
         reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_forward")
     )
