@@ -997,7 +997,6 @@ def kb_dm_resource_menu() -> InlineKeyboardMarkup:
     b.button(text="Активные ссылки / Esim", callback_data="dm:resource_active")
     b.button(text="Мои подтянутые ссылки", callback_data="dm:resource_used")
     b.button(text="Взять Ссылку/Esim", callback_data="dm:resource_banks")
-    b.button(text="Создать Банк", callback_data="dm:resource_create_bank")
     b.button(text="⬅️ Назад", callback_data="dm:menu")
     b.adjust(1)
     return b.as_markup()
