@@ -1014,7 +1014,7 @@ def kb_dm_resource_banks(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
 
 def kb_dm_resource_bank_actions(bank_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="Взять ресурс", callback_data=f"dm:resource_take:{int(bank_id)}")
+    b.button(text="Взять в работу", callback_data=f"dm:resource_take:{int(bank_id)}")
     b.button(text="Выйти на главную", callback_data="dm:menu")
     b.adjust(1)
     return b.as_markup()
