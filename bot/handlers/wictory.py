@@ -41,6 +41,7 @@ from bot.repositories import (
     create_resource_pool_item,
     get_bank,
     get_pool_item,
+    get_user_by_id,
     get_user_by_tg_id,
     list_banks,
     list_invalid_pool_items_for_wictory,
@@ -226,6 +227,14 @@ async def _wictory_guard(cq_or_msg: CallbackQuery | Message, session: AsyncSessi
     if not user or user.role != UserRole.WICTORY:
         return None
     return user
+
+
+async def _pool_item_is_wictory_created(session: AsyncSession, it) -> bool:
+    try:
+        creator = await get_user_by_id(session, int(getattr(it, "created_by_user_id", 0) or 0))
+        return bool(creator and creator.role == UserRole.WICTORY)
+    except Exception:
+        return False
 
 
 @router.callback_query(F.data == "wictory:home")
@@ -765,7 +774,7 @@ async def wictory_enter_data(message: Message, session: AsyncSession, state: FSM
     item_edit_mode = str(data.get("item_edit_mode") or "")
     if item_edit_id and item_edit_mode in {"data", "link", "comment"}:
         it = await get_pool_item(session, item_edit_id)
-        if it and int(it.created_by_user_id) == int(user.id):
+        if it and await _pool_item_is_wictory_created(session, it):
             tval = str(getattr(it.type, "value", "") or "").lower()
             new_text = txt
 
@@ -919,7 +928,7 @@ async def wictory_invalid_open(cq: CallbackQuery, session: AsyncSession, state: 
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id) or it.status != ResourceStatus.INVALID:
+    if not it or it.status != ResourceStatus.INVALID or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     bank = await get_bank(session, int(it.bank_id))
@@ -1064,7 +1073,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     bank = await get_bank(session, int(it.bank_id))
@@ -1131,7 +1140,7 @@ async def wictory_item_edit_data_start(cq: CallbackQuery, session: AsyncSession,
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
@@ -1159,7 +1168,7 @@ async def wictory_item_edit_comment_start(cq: CallbackQuery, session: AsyncSessi
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
@@ -1179,7 +1188,7 @@ async def wictory_item_edit_link_start(cq: CallbackQuery, session: AsyncSession,
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
@@ -1199,7 +1208,7 @@ async def wictory_item_edit_media_start(cq: CallbackQuery, session: AsyncSession
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
@@ -1266,7 +1275,7 @@ async def wictory_item_edit_source_start(cq: CallbackQuery, session: AsyncSessio
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
@@ -1292,7 +1301,7 @@ async def wictory_item_set_source(cq: CallbackQuery, session: AsyncSession) -> N
         await cq.answer("Некорректный источник", show_alert=True)
         return
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
@@ -1311,7 +1320,7 @@ async def wictory_item_edit_bank_start(cq: CallbackQuery, session: AsyncSession)
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
@@ -1336,7 +1345,7 @@ async def wictory_item_set_bank(cq: CallbackQuery, session: AsyncSession) -> Non
     item_id = int(parts[3])
     bank_id = int(parts[4])
     it = await get_pool_item(session, item_id)
-    if not it or int(it.created_by_user_id) != int(user.id):
+    if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
     if getattr(it.status, "value", "") not in {"free", "invalid"}:

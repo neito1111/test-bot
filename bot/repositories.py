@@ -817,9 +817,13 @@ async def mark_pool_item_used_with_form(session: AsyncSession, *, item_id: int, 
 
 
 async def list_wictory_pool_items(session: AsyncSession, *, wictory_user_id: int, limit: int = 100) -> list[ResourcePool]:
+    # WICTORY users see the shared pool of resources created by any WICTORY user.
+    # Keep wictory_user_id for backward compatibility (call sites pass it),
+    # but do not scope by it.
     res = await session.execute(
         select(ResourcePool)
-        .where(ResourcePool.created_by_user_id == int(wictory_user_id))
+        .join(User, User.id == ResourcePool.created_by_user_id)
+        .where(User.role == UserRole.WICTORY)
         .order_by(ResourcePool.updated_at.desc(), ResourcePool.id.desc())
         .limit(int(limit))
     )
@@ -829,10 +833,20 @@ async def list_wictory_pool_items(session: AsyncSession, *, wictory_user_id: int
 async def list_invalid_pool_items_for_wictory(session: AsyncSession, *, wictory_user_id: int) -> list[ResourcePool]:
     res = await session.execute(
         select(ResourcePool)
-        .where(ResourcePool.created_by_user_id == int(wictory_user_id), ResourcePool.status == ResourceStatus.INVALID)
+        .join(User, User.id == ResourcePool.created_by_user_id)
+        .where(User.role == UserRole.WICTORY, ResourcePool.status == ResourceStatus.INVALID)
         .order_by(ResourcePool.updated_at.desc(), ResourcePool.id.desc())
     )
     return list(res.scalars().all())
+
+
+async def _get_wictory_pool_item(session: AsyncSession, *, item_id: int) -> ResourcePool | None:
+    res = await session.execute(
+        select(ResourcePool)
+        .join(User, User.id == ResourcePool.created_by_user_id)
+        .where(ResourcePool.id == int(item_id), User.role == UserRole.WICTORY)
+    )
+    return res.scalar_one_or_none()
 
 
 async def wictory_update_invalid_item(
@@ -844,8 +858,8 @@ async def wictory_update_invalid_item(
     screenshots: list[str] | None = None,
     set_free: bool = False,
 ) -> ResourcePool | None:
-    item = await get_pool_item(session, int(item_id))
-    if not item or int(item.created_by_user_id) != int(wictory_user_id) or item.status != ResourceStatus.INVALID:
+    item = await _get_wictory_pool_item(session, item_id=int(item_id))
+    if not item or item.status != ResourceStatus.INVALID:
         return None
     if text_data is not None:
         item.text_data = text_data
@@ -867,8 +881,8 @@ async def wictory_update_item(
     source: str | None = None,
     bank_id: int | None = None,
 ) -> ResourcePool | None:
-    item = await get_pool_item(session, int(item_id))
-    if not item or int(item.created_by_user_id) != int(wictory_user_id):
+    item = await _get_wictory_pool_item(session, item_id=int(item_id))
+    if not item:
         return None
     if text_data is not None:
         item.text_data = text_data
@@ -882,8 +896,8 @@ async def wictory_update_item(
 
 
 async def wictory_delete_item(session: AsyncSession, *, item_id: int, wictory_user_id: int) -> bool:
-    item = await get_pool_item(session, int(item_id))
-    if not item or int(item.created_by_user_id) != int(wictory_user_id):
+    item = await _get_wictory_pool_item(session, item_id=int(item_id))
+    if not item:
         return False
     if item.status == ResourceStatus.ASSIGNED:
         return False

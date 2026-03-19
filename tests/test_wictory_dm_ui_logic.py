@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from bot.handlers.drop_manager import _split_link_comment as dm_split_link_comment
 from bot.handlers.wictory import _render_preview, _split_link_comment as wictory_split_link_comment
 from bot.keyboards import kb_dm_post_payment_actions, kb_wictory_bulk_next_actions, kb_wictory_item_actions
+from bot.models import ResourcePool, ResourceStatus, ResourceType, User, UserRole
+from bot.repositories import list_invalid_pool_items_for_wictory, list_wictory_pool_items, wictory_update_item
 
 
 def test_split_link_comment_wictory_link_esim_payload() -> None:
@@ -65,3 +69,64 @@ def test_kb_wictory_item_actions_link_esim_has_link_and_comment_buttons() -> Non
     labels = [b.text for row in kb.inline_keyboard for b in row]
     assert "Редактировать ссылку" in labels
     assert "Редактировать комментарий" in labels
+
+
+@pytest.mark.asyncio
+async def test_wictory_lists_and_edits_shared_pool_across_all_wictory_users(session) -> None:
+    w1 = User(tg_id=2001, role=UserRole.WICTORY)
+    w2 = User(tg_id=2002, role=UserRole.WICTORY)
+    dm = User(tg_id=2003, role=UserRole.DROP_MANAGER)
+    session.add_all([w1, w2, dm])
+    await session.flush()
+
+    it_w1 = ResourcePool(
+        source="TG",
+        bank_id=1,
+        type=ResourceType.LINK,
+        status=ResourceStatus.FREE,
+        text_data="w1",
+        screenshots=[],
+        created_by_user_id=int(w1.id),
+    )
+    it_w2 = ResourcePool(
+        source="TG",
+        bank_id=1,
+        type=ResourceType.ESIM,
+        status=ResourceStatus.FREE,
+        text_data="w2",
+        screenshots=[],
+        created_by_user_id=int(w2.id),
+    )
+    it_dm_invalid = ResourcePool(
+        source="TG",
+        bank_id=1,
+        type=ResourceType.LINK,
+        status=ResourceStatus.INVALID,
+        text_data="dm",
+        screenshots=[],
+        created_by_user_id=int(dm.id),
+    )
+    it_w2_invalid = ResourcePool(
+        source="TG",
+        bank_id=2,
+        type=ResourceType.LINK,
+        status=ResourceStatus.INVALID,
+        text_data="w2-inv",
+        screenshots=[],
+        created_by_user_id=int(w2.id),
+    )
+    session.add_all([it_w1, it_w2, it_dm_invalid, it_w2_invalid])
+    await session.flush()
+
+    out = await list_wictory_pool_items(session, wictory_user_id=int(w1.id), limit=100)
+    assert {int(x.created_by_user_id) for x in out} == {int(w1.id), int(w2.id)}
+
+    inv = await list_invalid_pool_items_for_wictory(session, wictory_user_id=int(w1.id))
+    assert [int(x.id) for x in inv] == [int(it_w2_invalid.id)]
+
+    # Any WICTORY user can edit any WICTORY-created item; DM-created items are not editable via WICTORY ops.
+    updated = await wictory_update_item(session, item_id=int(it_w2.id), wictory_user_id=int(w1.id), text_data="new")
+    assert updated is not None
+    assert updated.text_data == "new"
+    not_updated = await wictory_update_item(session, item_id=int(it_dm_invalid.id), wictory_user_id=int(w1.id), text_data="x")
+    assert not_updated is None
