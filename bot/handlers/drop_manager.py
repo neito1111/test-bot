@@ -696,7 +696,7 @@ async def _show_post_payment_prompt(*, message: Message, session: AsyncSession, 
 
     try:
         await message.answer(
-            "Можно привязать анкету к ресурсу или продолжить.",
+            "Можно привязать анкету к Ссылка/Esim или продолжить.",
             reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=can_attach_resource),
         )
         return True
@@ -1453,7 +1453,7 @@ async def dm_payment_prompt_cb(cq: CallbackQuery, session: AsyncSession) -> None
     if cq.message:
         await _safe_edit_message(
             message=cq.message,
-            text="Можно привязать анкету к ресурсу или продолжить.",
+            text="Можно привязать анкету к Ссылка/Esim или продолжить.",
             reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=True),
         )
 
