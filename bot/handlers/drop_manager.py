@@ -684,13 +684,8 @@ async def _send_form_preview_only(*, bot: Any, chat_id: int, text: str, photos: 
 async def _show_post_payment_prompt(*, message: Message, session: AsyncSession, user: User | None, form: Form) -> bool:
     can_attach_resource = False
     try:
-        src_for_attach = (getattr(user, "manager_source", None) or "TG") if user else "TG"
-        banks_for_source = await _list_banks_for_dm_source(session, src_for_attach)
-        bank_name_norm = str(form.bank_name or "").strip().lower()
-        bank_obj = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
-        if bank_obj:
-            free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank_obj.id), source=src_for_attach)
-            can_attach_resource = len(free_items) > 0
+        active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
+        can_attach_resource = len(active_items) > 0
     except Exception:
         can_attach_resource = False
 
@@ -702,6 +697,24 @@ async def _show_post_payment_prompt(*, message: Message, session: AsyncSession, 
         return True
     except Exception:
         return False
+
+
+async def _list_dm_active_items_for_form_bank(*, session: AsyncSession, user: User | None, form: Form) -> list:
+    if not user:
+        return []
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    banks_for_source = await _list_banks_for_dm_source(session, source)
+    bank_name_norm = str(form.bank_name or "").strip().lower()
+    bank_obj = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
+    if not bank_obj:
+        return []
+    active_items = await list_dm_active_pool_items(session, dm_user_id=int(user.id))
+    return [
+        x
+        for x in active_items
+        if int(getattr(x, "bank_id", 0) or 0) == int(bank_obj.id)
+        and str(getattr(x, "source", "") or "").upper() == source
+    ]
 
 
 async def _finish_payment(
@@ -1449,12 +1462,13 @@ async def dm_payment_prompt_cb(cq: CallbackQuery, session: AsyncSession) -> None
     if not form or int(form.manager_id or 0) != int(user.id):
         await cq.answer("Анкета не найдена", show_alert=True)
         return
+    active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
     await cq.answer()
     if cq.message:
         await _safe_edit_message(
             message=cq.message,
             text="Можно привязать анкету к Ссылка/Esim или продолжить.",
-            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=True),
+            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=bool(active_items)),
         )
 
 
@@ -1500,19 +1514,11 @@ async def dm_approved_attach_start_cb(cq: CallbackQuery, session: AsyncSession) 
         await cq.answer("К анкете уже привязан ресурс", show_alert=True)
         return
 
-    source = (getattr(user, "manager_source", None) or "TG")
-    banks_for_source = await _list_banks_for_dm_source(session, source)
-    bank_name_norm = str(form.bank_name or "").strip().lower()
-    bank = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
-    if not bank:
-        await cq.answer("Для этого банка нет доступных ресурсов", show_alert=True)
-        return
-
-    free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank.id), source=source)
-    counts = _free_pool_counts_by_type(free_items)
+    active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
+    counts = _free_pool_counts_by_type(active_items)
     available_types = [t for t in ("link", "esim", "link_esim") if int(counts.get(t, 0)) > 0]
     if not available_types:
-        await cq.answer("На этот банк нет ресурсов от WICTORY", show_alert=True)
+        await cq.answer("У вас нет активных ссылок/есим для этой анкеты", show_alert=True)
         return
 
     await cq.answer()
@@ -1548,26 +1554,13 @@ async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -
         await cq.answer("К анкете уже привязан ресурс", show_alert=True)
         return
 
-    source = (getattr(user, "manager_source", None) or "TG")
-    banks_for_source = await _list_banks_for_dm_source(session, source)
-    bank_name_norm = str(form.bank_name or "").strip().lower()
-    bank = next((b for b in banks_for_source if str(getattr(b, "name", "") or "").strip().lower() == bank_name_norm), None)
-    if not bank:
-        await cq.answer("Для этого банка нет доступных ресурсов", show_alert=True)
-        return
-
-    free_items = await list_free_pool_items_for_bank(session, bank_id=int(bank.id), source=source)
-    picked = next((x for x in free_items if str(getattr(getattr(x, "type", None), "value", "") or "").lower() == str(rtype).lower()), None)
+    active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
+    picked = next((x for x in active_items if str(getattr(getattr(x, "type", None), "value", "") or "").lower() == str(rtype).lower()), None)
     if not picked:
-        await cq.answer("Ресурс этого типа закончился", show_alert=True)
+        await cq.answer("У вас нет активных ссылок/есим для этой анкеты", show_alert=True)
         return
 
-    assigned = await assign_pool_item_to_dm(session, item_id=int(picked.id), dm_user_id=int(user.id))
-    if not assigned:
-        await cq.answer("Не удалось взять ресурс", show_alert=True)
-        return
-
-    used = await mark_pool_item_used_with_form(session, item_id=int(assigned.id), dm_user_id=int(user.id), form_id=int(form.id))
+    used = await mark_pool_item_used_with_form(session, item_id=int(picked.id), dm_user_id=int(user.id), form_id=int(form.id))
     if not used:
         await cq.answer("Не удалось привязать ресурс", show_alert=True)
         return
