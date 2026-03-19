@@ -2319,11 +2319,13 @@ async def _get_end_shift_block_reason(*, session: AsyncSession, user_id: int, sh
     if not_approved > 0:
         return f"Нельзя завершить смену: есть {not_approved} анкет(а/ы) без апрува ТЛ."
 
-    # Test bot stricter rule: no active links/esim assigned to DM.
-    if (getattr(settings, "bot_token", "") or "").startswith("8115544053:"):
-        active_links = await count_dm_active_pool_items(session, dm_user_id=int(user_id))
-        if active_links > 0:
-            return f"Нельзя завершить смену: у вас {active_links} активных ссылок/Esim. Сначала сдайте их."
+    # Always require resource finalization before shift end.
+    active_links = await count_dm_active_pool_items(session, dm_user_id=int(user_id))
+    if active_links > 0:
+        return (
+            f"Нельзя завершить смену: у вас {active_links} активных ссылок/Esim. "
+            "Сначала финализируйте их."
+        )
     return None
 
 
