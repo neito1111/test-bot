@@ -33,6 +33,7 @@ from bot.keyboards import (
     kb_dm_edit_screens_inline,
     kb_dm_main_inline,
     kb_dm_payment_card_with_back,
+    kb_dm_approved_attach_item_pick,
     kb_dm_approved_attach_type_pick,
     kb_dm_post_payment_actions,
     kb_dm_payment_next_actions,
@@ -682,17 +683,10 @@ async def _send_form_preview_only(*, bot: Any, chat_id: int, text: str, photos: 
 
 
 async def _show_post_payment_prompt(*, message: Message, session: AsyncSession, user: User | None, form: Form) -> bool:
-    can_attach_resource = False
-    try:
-        active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
-        can_attach_resource = len(active_items) > 0
-    except Exception:
-        can_attach_resource = False
-
     try:
         await message.answer(
             "Можно привязать анкету к Ссылка/Esim или продолжить.",
-            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=can_attach_resource),
+            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=True),
         )
         return True
     except Exception:
@@ -715,6 +709,89 @@ async def _list_dm_active_items_for_form_bank(*, session: AsyncSession, user: Us
         if int(getattr(x, "bank_id", 0) or 0) == int(bank_obj.id)
         and str(getattr(x, "source", "") or "").upper() == source
     ]
+
+
+def _attach_item_button_label(item: Any) -> str:
+    item_id = int(getattr(item, "id", 0) or 0)
+    type_val = str(getattr(getattr(item, "type", None), "value", "") or "").lower()
+    raw_payload = str(getattr(item, "text_data", "") or "").strip()
+    preview = ""
+    if type_val == "link_esim":
+        link, comment = _split_link_comment(raw_payload)
+        preview = link or comment or raw_payload
+    else:
+        preview = raw_payload
+    preview = re.sub(r"\s+", " ", preview).strip()
+    if len(preview) > 24:
+        preview = f"{preview[:24]}..."
+    if not preview:
+        preview = _pool_type_ru(type_val)
+    return f"{_resource_ident(item_id)} | {preview}"
+
+
+async def _attach_selected_item_and_show_result(
+    *,
+    cq: CallbackQuery,
+    session: AsyncSession,
+    user: User,
+    form: Form,
+    picked_item: Any,
+) -> None:
+    used = await mark_pool_item_used_with_form(
+        session,
+        item_id=int(getattr(picked_item, "id", 0) or 0),
+        dm_user_id=int(user.id),
+        form_id=int(form.id),
+    )
+    if not used:
+        await cq.answer("Не удалось привязать ресурс", show_alert=True)
+        return
+
+    await cq.answer("Ресурс привязан")
+    if not cq.message:
+        return
+
+    type_val = str(getattr(getattr(used, "type", None), "value", "") or "").lower()
+    bank = await get_bank(session, int(used.bank_id))
+    history_chain = str(getattr(used, "usage_history", "") or "").strip() or "—"
+    data_lines = _pool_data_lines(type_val=type_val, text_data=getattr(used, "text_data", None))
+    txt = (
+        "<b>Привязанный ресурс</b>\n"
+        f"ID ресурса: <code>{int(used.id)}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(used.id))}</code>\n"
+        f"Банк: <b>{bank.name if bank else '—'}</b>\n"
+        f"Тип: <b>{_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}</b>\n"
+        f"Анкета: <code>#{int(form.id)}</code>\n"
+        f"История пользования: <code>{history_chain}</code>\n"
+        + "\n".join(data_lines)
+    )
+
+    shots = list(getattr(used, "screenshots", None) or [])
+    if shots:
+        try:
+            kind, fid = unpack_media_item(str(shots[0]))
+            if kind == "photo":
+                await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML")
+            elif kind == "video":
+                await cq.message.answer_video(fid, caption=txt, parse_mode="HTML")
+            else:
+                await cq.message.answer_document(fid, caption=txt, parse_mode="HTML")
+        except Exception:
+            await cq.message.answer(txt, parse_mode="HTML")
+    else:
+        await cq.message.answer(txt, parse_mode="HTML")
+
+    raw_payload = str(getattr(used, "text_data", "") or "").strip()
+    if raw_payload and _pool_type_has_link(type_val):
+        # "Message from WICTORY" should be duplicated only for link-containing items.
+        await cq.message.answer(raw_payload)
+
+    shift = await get_active_shift(session, int(user.id))
+    menu_text = (
+        f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>"
+    )
+    kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=bool(shift))
+    await cq.message.answer(menu_text, reply_markup=kb)
 
 
 async def _finish_payment(
@@ -1462,13 +1539,12 @@ async def dm_payment_prompt_cb(cq: CallbackQuery, session: AsyncSession) -> None
     if not form or int(form.manager_id or 0) != int(user.id):
         await cq.answer("Анкета не найдена", show_alert=True)
         return
-    active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
     await cq.answer()
     if cq.message:
         await _safe_edit_message(
             message=cq.message,
             text="Можно привязать анкету к Ссылка/Esim или продолжить.",
-            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=bool(active_items)),
+            reply_markup=kb_dm_post_payment_actions(int(form.id), can_attach=True),
         )
 
 
@@ -1555,59 +1631,76 @@ async def dm_approved_attach_type_cb(cq: CallbackQuery, session: AsyncSession) -
         return
 
     active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
-    picked = next((x for x in active_items if str(getattr(getattr(x, "type", None), "value", "") or "").lower() == str(rtype).lower()), None)
-    if not picked:
+    typed_items = [
+        x
+        for x in active_items
+        if str(getattr(getattr(x, "type", None), "value", "") or "").lower() == str(rtype).lower()
+    ]
+    if not typed_items:
         await cq.answer("У вас нет активных ссылок/есим для этой анкеты", show_alert=True)
         return
 
-    used = await mark_pool_item_used_with_form(session, item_id=int(picked.id), dm_user_id=int(user.id), form_id=int(form.id))
-    if not used:
-        await cq.answer("Не удалось привязать ресурс", show_alert=True)
+    if len(typed_items) > 1:
+        choices = [(int(it.id), _attach_item_button_label(it)) for it in typed_items]
+        await cq.answer()
+        if cq.message:
+            await _safe_edit_message(
+                message=cq.message,
+                text=(
+                    f"Анкета <code>#{int(form.id)}</code> · <b>{form.bank_name or '—'}</b>\n"
+                    f"Найдено {len(typed_items)} ресурсов типа <b>{_pool_type_ru(rtype)}</b>. Выберите ресурс:"
+                ),
+                reply_markup=kb_dm_approved_attach_item_pick(int(form.id), choices),
+            )
         return
 
-    await cq.answer("Ресурс привязан")
-    if cq.message:
-        type_val = str(getattr(getattr(used, "type", None), "value", "") or "").lower()
-        bank = await get_bank(session, int(used.bank_id))
-        history_chain = str(getattr(used, "usage_history", "") or "").strip() or "—"
-        data_lines = _pool_data_lines(type_val=type_val, text_data=getattr(used, "text_data", None))
-        txt = (
-            "<b>Привязанный ресурс</b>\n"
-            f"ID ресурса: <code>{int(used.id)}</code>\n"
-            f"Код ресурса: <code>{_resource_ident(int(used.id))}</code>\n"
-            f"Банк: <b>{bank.name if bank else '—'}</b>\n"
-            f"Тип: <b>{_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}</b>\n"
-            f"Анкета: <code>#{int(form.id)}</code>\n"
-            f"История пользования: <code>{history_chain}</code>\n"
-            + "\n".join(data_lines)
-        )
+    await _attach_selected_item_and_show_result(
+        cq=cq,
+        session=session,
+        user=user,
+        form=form,
+        picked_item=typed_items[0],
+    )
 
-        shots = list(getattr(used, "screenshots", None) or [])
-        if shots:
-            try:
-                kind, fid = unpack_media_item(str(shots[0]))
-                if kind == "photo":
-                    await cq.message.answer_photo(fid, caption=txt, parse_mode="HTML")
-                elif kind == "video":
-                    await cq.message.answer_video(fid, caption=txt, parse_mode="HTML")
-                else:
-                    await cq.message.answer_document(fid, caption=txt, parse_mode="HTML")
-            except Exception:
-                await cq.message.answer(txt, parse_mode="HTML")
-        else:
-            await cq.message.answer(txt, parse_mode="HTML")
 
-        raw_payload = str(getattr(used, "text_data", "") or "").strip()
-        if raw_payload and _pool_type_has_link(type_val):
-            # "Message from WICTORY" should be duplicated only for link-containing items.
-            await cq.message.answer(raw_payload)
+@router.callback_query(F.data.startswith("dm:approved_attach_pick:"))
+async def dm_approved_attach_pick_cb(cq: CallbackQuery, session: AsyncSession) -> None:
+    if not cq.from_user:
+        return
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        await cq.answer("Нет прав", show_alert=True)
+        return
 
-        shift = await get_active_shift(session, int(user.id))
-        menu_text = (
-            f"✅ Ресурс <code>#{int(used.id)}</code> ({_pool_type_ru(str(getattr(getattr(used, 'type', None), 'value', '') or ''))}) привязан к анкете <code>#{int(form.id)}</code>"
-        )
-        kb = await _build_dm_main_kb(session=session, user_id=int(user.id), shift_active=bool(shift))
-        await cq.message.answer(menu_text, reply_markup=kb)
+    try:
+        _, _, _, form_id_s, item_id_s = (cq.data or "").split(":", 4)
+        form_id = int(form_id_s)
+        item_id = int(item_id_s)
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+
+    form = await get_form(session, form_id)
+    if not form or int(form.manager_id or 0) != int(user.id) or form.status != FormStatus.APPROVED:
+        await cq.answer("Анкета не найдена", show_alert=True)
+        return
+    if await form_has_linked_pool_item(session, form_id=int(form.id)):
+        await cq.answer("К анкете уже привязан ресурс", show_alert=True)
+        return
+
+    active_items = await _list_dm_active_items_for_form_bank(session=session, user=user, form=form)
+    picked_item = next((x for x in active_items if int(getattr(x, "id", 0) or 0) == item_id), None)
+    if not picked_item:
+        await cq.answer("Выбранный ресурс уже недоступен", show_alert=True)
+        return
+
+    await _attach_selected_item_and_show_result(
+        cq=cq,
+        session=session,
+        user=user,
+        form=form,
+        picked_item=picked_item,
+    )
 
 
 @router.message(DropManagerPaymentStates.card_main, F.text)

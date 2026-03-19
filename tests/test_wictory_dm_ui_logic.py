@@ -4,7 +4,12 @@ import pytest
 
 from bot.handlers.drop_manager import _split_link_comment as dm_split_link_comment
 from bot.handlers.wictory import _render_preview, _split_link_comment as wictory_split_link_comment
-from bot.keyboards import kb_dm_post_payment_actions, kb_wictory_bulk_next_actions, kb_wictory_item_actions
+from bot.keyboards import (
+    kb_dm_approved_attach_item_pick,
+    kb_dm_post_payment_actions,
+    kb_wictory_bulk_next_actions,
+    kb_wictory_item_actions,
+)
 from bot.models import ResourcePool, ResourceStatus, ResourceType, User, UserRole
 from bot.repositories import list_invalid_pool_items_for_wictory, list_wictory_pool_items, wictory_update_item
 
@@ -47,8 +52,19 @@ def test_kb_dm_post_payment_actions_buttons() -> None:
 
     kb_without_attach = kb_dm_post_payment_actions(12, can_attach=False)
     labels_without = [b.text for row in kb_without_attach.inline_keyboard for b in row]
-    assert "🔗 Привязать анкету" not in labels_without
+    assert "🔗 Привязать анкету" in labels_without
     assert "Продолжить" in labels_without
+
+
+def test_kb_dm_approved_attach_item_pick_buttons() -> None:
+    kb = kb_dm_approved_attach_item_pick(12, [(101, "RID-101 | test"), (102, "RID-102 | test")])
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    callbacks = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "RID-101 | test" in labels
+    assert "RID-102 | test" in labels
+    assert "⬅️ Назад" in labels
+    assert "dm:approved_attach_pick:12:101" in callbacks
+    assert "dm:approved_attach_pick:12:102" in callbacks
 
 
 def test_kb_wictory_bulk_next_actions_buttons() -> None:
