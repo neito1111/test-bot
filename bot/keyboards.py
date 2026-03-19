@@ -444,7 +444,7 @@ def kb_dm_main_inline(*, shift_active: bool, rejected_count: int | None = None) 
         if rejected_count is not None:
             rej_text = f"({int(rejected_count)}) {rej_text}"
         b.button(text=rej_text, callback_data="dm:rejected")
-        b.button(text="Запрос ссылки", callback_data="dm:resource_menu")
+        b.button(text="Запрос Ссылки/Esim", callback_data="dm:resource_menu")
         b.button(text="Актуал", callback_data="dm:actual")
         b.button(text="Закончить работу", callback_data="dm:end_shift")
         b.adjust(2, 2, 2, 1)

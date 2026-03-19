@@ -5571,7 +5571,7 @@ async def dm_resource_menu(cq: CallbackQuery, session: AsyncSession) -> None:
         return
     await cq.answer()
     if cq.message:
-        await _safe_edit_message(message=cq.message, text="<b>Запрос ссылки</b>", reply_markup=kb_dm_resource_menu())
+        await _safe_edit_message(message=cq.message, text="<b>Запрос Ссылки/Esim</b>", reply_markup=kb_dm_resource_menu())
 
 
 @router.callback_query(F.data == "dm:resource_create_bank")
