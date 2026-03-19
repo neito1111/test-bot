@@ -447,7 +447,7 @@ def kb_dm_main_inline(*, shift_active: bool, rejected_count: int | None = None) 
     if shift_active:
         b.button(text="Создать анкету", callback_data="dm:create_form")
         b.button(text="Мои анкеты", callback_data="dm:my_forms")
-        b.button(text="✅ Подтверждённые без номеров", callback_data="dm:approved_no_pay")
+        b.button(text="✅ Подтвержденые без карты", callback_data="dm:approved_no_pay")
         rej_text = "Неапрувнутые анкеты"
         if rejected_count is not None:
             rej_text = f"({int(rejected_count)}) {rej_text}"
