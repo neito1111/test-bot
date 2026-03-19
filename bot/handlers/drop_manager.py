@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import html
@@ -2094,11 +2094,11 @@ async def dm_my_form_resume_cb(cq: CallbackQuery, session: AsyncSession, state: 
         if instr:
             await cq.bot.send_message(
                 int(cq.from_user.id),
-                "Введите пароль/инкод:",
+                "Введите пароль/пинкод:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
             )
         else:
-            await _prompt("Введите пароль/инкод:", kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"))
+            await _prompt("Введите пароль/пинкод:", kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"))
         return
 
     if not form.screenshots:
@@ -3251,13 +3251,13 @@ async def dm_bank_pick_id_cb(cq: CallbackQuery, session: AsyncSession, state: FS
             await cq.bot.send_message(int(cq.from_user.id), instr, parse_mode="HTML")
             await cq.bot.send_message(
                 int(cq.from_user.id),
-                "Введите пароль/инкод:",
+                "Введите пароль/пинкод:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
             )
         else:
             await _safe_edit_message(
                 message=cq.message,
-                text="Введите пароль/инкод:",
+                text="Введите пароль/пинкод:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
             )
 
@@ -3322,13 +3322,13 @@ async def dm_bank_pick_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
             await cq.bot.send_message(int(cq.from_user.id), instr, parse_mode="HTML")
             await cq.bot.send_message(
                 int(cq.from_user.id),
-                "Введите пароль/инкод:",
+                "Введите пароль/пинкод:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
             )
         else:
             await _safe_edit_message(
                 message=cq.message,
-                text="Введите пароль/инкод:",
+                text="Введите пароль/пинкод:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
             )
 
@@ -3407,7 +3407,7 @@ async def form_bank_select(message: Message, session: AsyncSession, state: FSMCo
     if instr:
         await message.answer(instr, parse_mode="HTML")
     await message.answer(
-        "Введите пароль/инкод:",
+        "Введите пароль/пинкод:",
         reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
     )
 
@@ -3459,7 +3459,7 @@ async def form_bank_custom(message: Message, session: AsyncSession, state: FSMCo
     if instr:
         await message.answer(instr, parse_mode="HTML")
     await message.answer(
-        "Введите пароль/инкод:",
+        "Введите пароль/пинкод:",
         reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
     )
 
@@ -3468,7 +3468,7 @@ async def form_bank_custom(message: Message, session: AsyncSession, state: FSMCo
 async def form_password(message: Message, session: AsyncSession, state: FSMContext) -> None:
     pwd = (message.text or "").strip()
     if not pwd:
-        await message.answer("Введите пароль/инкод:")
+        await message.answer("Введите пароль/пинкод:")
         return
     data = await state.get_data()
     form = await get_form(session, int(data["form_id"]))
@@ -3512,7 +3512,7 @@ async def dm_back_to_password_cb(cq: CallbackQuery, state: FSMContext) -> None:
     if cq.message:
         await _safe_edit_message(
             message=cq.message,
-            text="Введите пароль/инкод:",
+            text="Введите пароль/пинкод:",
             reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
         )
 
@@ -4405,7 +4405,7 @@ async def dm_edit_field_cb(cq: CallbackQuery, session: AsyncSession, state: FSMC
             await _set_edit_prompt_message(
                 message=cq.message,
                 state=state,
-                text="Введите пароль/инкод:",
+                text="Введите пароль/пинкод:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb=f"dm_edit:back:{form.id}", cancel_cb="dm_edit:cancel"),
             )
         return
@@ -4632,7 +4632,7 @@ async def edit_choose_field(message: Message, session: AsyncSession, state: FSMC
         await _set_edit_prompt_message(
             message=message,
             state=state,
-            text="Введите пароль/инкод:",
+            text="Введите пароль/пинкод:",
             reply_markup=kb_dm_back_cancel_inline(back_cb=f"dm_edit:back:{form.id}"),
         )
         return
@@ -4990,7 +4990,7 @@ async def dm_edit_bank_custom_prompt_cb(cq: CallbackQuery, session: AsyncSession
 async def edit_password(message: Message, session: AsyncSession, state: FSMContext) -> None:
     pwd = (message.text or "").strip()
     if not pwd:
-        await message.answer("Введите пароль/инкод:")
+        await message.answer("Введите пароль/пинкод:")
         return
     data = await state.get_data()
     form = await get_form(session, int(data["form_id"]))
@@ -5279,7 +5279,7 @@ async def form_back_to_bank_select_from_password(message: Message, session: Asyn
 async def form_back_to_password(message: Message, state: FSMContext) -> None:
     await state.set_state(DropManagerFormStates.password)
     await message.answer(
-        "Введите пароль/инкод:",
+        "Введите пароль/пинкод:",
         reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
     )
 
