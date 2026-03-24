@@ -75,6 +75,7 @@ class DropManagerShiftStates(StatesGroup):
 
 class WictoryStates(StatesGroup):
     pick_bank = State()
+    pick_bank_tg = State()
     upload_screenshot = State()
     enter_data = State()
     enter_bulk = State()

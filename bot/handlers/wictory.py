@@ -91,6 +91,17 @@ def _bank_items_with_source(banks: list, source: str | None) -> list[tuple[int, 
         out.append((int(b.id), f"{nm} ({suffix})"))
     return out
 
+
+def _source_label(src: str | None) -> str:
+    s = (src or "TG").upper()
+    if s == "ALL":
+        return "Общее"
+    return s
+
+
+def _norm_bank_name(name: str | None) -> str:
+    return " ".join((name or "").strip().lower().split())
+
 router = Router(name="wictory")
 router.message.filter(GroupMessageFilter())
 
@@ -187,6 +198,8 @@ def _compose_link_esim_payload(comment: str | None, link: str | None) -> str:
 def _render_preview(data: dict) -> str:
     rtype = str(data.get("resource_type") or "")
     bank_name = data.get("bank_name") or "—"
+    bank_name_fb = data.get("bank_name_fb") or bank_name
+    bank_name_tg = data.get("bank_name_tg") or "—"
     link = data.get("text_data") or "—"
     screens = data.get("screenshots") or []
 
@@ -199,10 +212,14 @@ def _render_preview(data: dict) -> str:
     lines = [
         "<b>Готовый запрос</b>",
         "",
-        f"Источник: <b>{data.get('resource_source') or 'TG'}</b>",
+        f"Источник: <b>{_source_label(data.get('resource_source'))}</b>",
         f"Тип: <b>{type_ru}</b>",
-        f"Банк: <b>{bank_name}</b>",
     ]
+    if str(data.get("resource_source") or "").upper() == "ALL":
+        lines.append(f"Банк FB: <b>{bank_name_fb}</b>")
+        lines.append(f"Банк TG: <b>{bank_name_tg}</b>")
+    else:
+        lines.append(f"Банк: <b>{bank_name}</b>")
 
     if rtype == "link":
         lines.append(f"Ссылка: <code>{link}</code>")
@@ -286,12 +303,20 @@ async def wictory_back(cq: CallbackQuery, session: AsyncSession, state: FSMConte
 
     if stage == "bank_list":
         src = str(data.get("resource_source") or "TG").upper()
-        banks = await _list_banks_for_source(session, src)
-        items = _bank_items_with_source(banks, src)
+        if src == "ALL":
+            banks = await _list_banks_for_source(session, "FB")
+            items = _bank_items_with_source(banks, "FB")
+        else:
+            banks = await _list_banks_for_source(session, src)
+            items = _bank_items_with_source(banks, src)
         await state.set_state(WictoryStates.pick_bank)
         await cq.answer()
         if cq.message:
-            await _safe_edit_or_answer(cq, f"Источник: <b>{src}</b>\nВыберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
+            await _safe_edit_or_answer(
+                cq,
+                f"Источник: <b>{_source_label(src)}</b>\nВыберите банк:",
+                reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"),
+            )
         return
 
     if stage == "bank":
@@ -343,7 +368,11 @@ async def wictory_add_start(cq: CallbackQuery, session: AsyncSession, state: FSM
     await state.update_data(resource_type=resource_type)
     await cq.answer()
     if cq.message:
-        await _safe_edit_or_answer(cq, "Выберите источник для этой записи:", reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"))
+        await _safe_edit_or_answer(
+            cq,
+            "Выберите источник для этой записи (TG/FB/Общее):",
+            reply_markup=kb_wictory_pick_source(back_cb="wictory:back:home"),
+        )
 
 
 @router.callback_query(F.data.startswith("wictory:src:"))
@@ -352,16 +381,24 @@ async def wictory_pick_source(cq: CallbackQuery, session: AsyncSession, state: F
     if not user:
         return
     src = (cq.data or "").split(":")[-1].upper()
-    if src not in {"TG", "FB"}:
+    if src not in {"TG", "FB", "ALL"}:
         await cq.answer("Некорректный источник", show_alert=True)
         return
-    banks = await _list_banks_for_source(session, src)
-    items = _bank_items_with_source(banks, src)
+    if src == "ALL":
+        banks = await _list_banks_for_source(session, "FB")
+        items = _bank_items_with_source(banks, "FB")
+    else:
+        banks = await _list_banks_for_source(session, src)
+        items = _bank_items_with_source(banks, src)
     await state.set_state(WictoryStates.pick_bank)
     await state.update_data(resource_source=src)
     await cq.answer()
     if cq.message:
-        await _safe_edit_or_answer(cq, f"Источник: <b>{src}</b>\nВыберите банк:", reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"))
+        await _safe_edit_or_answer(
+            cq,
+            f"Источник: <b>{_source_label(src)}</b>\nВыберите банк:",
+            reply_markup=kb_wictory_banks(items, back_cb="wictory:back:home"),
+        )
 
 
 @router.callback_query(WictoryStates.pick_bank, F.data.startswith("wictory:bank:"))
@@ -374,7 +411,42 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
     if not bank:
         await cq.answer("Банк не найден", show_alert=True)
         return
-    await state.update_data(bank_id=bank_id, bank_name=bank.name)
+    data = await state.get_data()
+    src = str(data.get("resource_source") or "TG").upper()
+    if src == "ALL":
+        bank_name_fb = str(bank.name or "").strip() or "—"
+        tg_banks = await _list_banks_for_source(session, "TG")
+        tg_match = next((b for b in tg_banks if _norm_bank_name(getattr(b, "name", None)) == _norm_bank_name(bank.name)), None)
+        if tg_match:
+            await state.update_data(
+                bank_id=bank_id,
+                bank_name=bank_name_fb,
+                bank_id_fb=bank_id,
+                bank_name_fb=bank_name_fb,
+                bank_id_tg=int(tg_match.id),
+                bank_name_tg=str(getattr(tg_match, "name", "") or "—"),
+            )
+        else:
+            await state.update_data(
+                bank_id=bank_id,
+                bank_name=bank_name_fb,
+                bank_id_fb=bank_id,
+                bank_name_fb=bank_name_fb,
+                bank_id_tg=None,
+                bank_name_tg=None,
+            )
+            items_tg = _bank_items_with_source(tg_banks, "TG")
+            await state.set_state(WictoryStates.pick_bank_tg)
+            await cq.answer()
+            if cq.message:
+                await _safe_edit_or_answer(
+                    cq,
+                    f"Банк FB: <b>{bank_name_fb}</b>\nДля TG выберите банк:",
+                    reply_markup=kb_wictory_banks(items_tg, back_cb="wictory:back:bank_list"),
+                )
+            return
+    else:
+        await state.update_data(bank_id=bank_id, bank_name=bank.name)
     data = await state.get_data()
     await cq.answer()
     if data.get("bank_edit_mode"):
@@ -384,9 +456,47 @@ async def wictory_pick_bank(cq: CallbackQuery, session: AsyncSession, state: FSM
             await _show_preview_from_callback(cq, await state.get_data())
         return
     if cq.message:
+        bank_label = bank.name
+        if src == "ALL":
+            bank_label = f"FB: {data.get('bank_name_fb') or bank.name} / TG: {data.get('bank_name_tg') or '—'}"
         await _safe_edit_or_answer(
             cq,
-            f"Банк: <b>{bank.name}</b>\nВыберите режим добавления:",
+            f"Банк: <b>{bank_label}</b>\nВыберите режим добавления:",
+            reply_markup=kb_wictory_bank_actions(),
+        )
+
+
+@router.callback_query(WictoryStates.pick_bank_tg, F.data.startswith("wictory:bank:"))
+async def wictory_pick_bank_tg(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    bank_id = int((cq.data or "").split(":")[-1])
+    bank = await get_bank(session, bank_id)
+    if not bank:
+        await cq.answer("Банк не найден", show_alert=True)
+        return
+
+    data = await state.get_data()
+    await state.update_data(
+        bank_id_tg=bank_id,
+        bank_name_tg=str(getattr(bank, "name", "") or "—"),
+    )
+    await state.set_state(WictoryStates.pick_bank)
+    await cq.answer()
+    if data.get("bank_edit_mode"):
+        await state.update_data(bank_edit_mode=None)
+        await state.set_state(WictoryStates.preview)
+        if cq.message:
+            await _show_preview_from_callback(cq, await state.get_data())
+        return
+
+    if cq.message:
+        fb_name = str(data.get("bank_name_fb") or data.get("bank_name") or "—")
+        tg_name = str(getattr(bank, "name", "") or "—")
+        await _safe_edit_or_answer(
+            cq,
+            f"Банк: <b>FB: {fb_name} / TG: {tg_name}</b>\nВыберите режим добавления:",
             reply_markup=kb_wictory_bank_actions(),
         )
 
@@ -504,6 +614,8 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
         rtype = str(data.get("resource_type") or "")
         src = str(data.get("resource_source") or "TG").upper()
         bank_id = int(data.get("bank_id") or 0)
+        bank_id_fb = int(data.get("bank_id_fb") or bank_id or 0)
+        bank_id_tg = int(data.get("bank_id_tg") or 0)
         caption_txt = (message.caption or "").strip()
 
         if rtype == "link_esim" and not caption_txt:
@@ -515,16 +627,43 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
         else:
             text_data = caption_txt or None
 
-        item = await create_resource_pool_item(
-            session,
-            source=src,
-            bank_id=bank_id,
-            resource_type=rtype,
-            text_data=text_data,
-            screenshots=[str(new_item)],
-            created_by_user_id=int(user.id),
-        )
-        await message.answer(f"Добавлено: <code>{_resource_ident(int(item.id))}</code>", reply_markup=kb_wictory_bulk_next_actions())
+        if src == "ALL":
+            if not bank_id_fb or not bank_id_tg:
+                await message.answer("Не удалось определить банки для TG/FB. Начните создание заново.")
+                return
+            item_fb = await create_resource_pool_item(
+                session,
+                source="FB",
+                bank_id=bank_id_fb,
+                resource_type=rtype,
+                text_data=text_data,
+                screenshots=[str(new_item)],
+                created_by_user_id=int(user.id),
+            )
+            item_tg = await create_resource_pool_item(
+                session,
+                source="TG",
+                bank_id=bank_id_tg,
+                resource_type=rtype,
+                text_data=text_data,
+                screenshots=[str(new_item)],
+                created_by_user_id=int(user.id),
+            )
+            await message.answer(
+                f"Добавлено: <code>{_resource_ident(int(item_fb.id))}</code>, <code>{_resource_ident(int(item_tg.id))}</code>",
+                reply_markup=kb_wictory_bulk_next_actions(),
+            )
+        else:
+            item = await create_resource_pool_item(
+                session,
+                source=src,
+                bank_id=bank_id,
+                resource_type=rtype,
+                text_data=text_data,
+                screenshots=[str(new_item)],
+                created_by_user_id=int(user.id),
+            )
+            await message.answer(f"Добавлено: <code>{_resource_ident(int(item.id))}</code>", reply_markup=kb_wictory_bulk_next_actions())
         return
 
     if len(shots) >= 10:
@@ -709,6 +848,8 @@ async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSM
     rtype = str(data.get("resource_type") or "")
     src = str(data.get("resource_source") or "TG").upper()
     bank_id = int(data.get("bank_id") or 0)
+    bank_id_fb = int(data.get("bank_id_fb") or bank_id or 0)
+    bank_id_tg = int(data.get("bank_id_tg") or 0)
     raw = (message.text or "").strip()
     if not raw:
         await message.answer("Пустое сообщение. Отправьте текст с данными.")
@@ -738,16 +879,40 @@ async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSM
 
     created = 0
     for block in blocks:
-        await create_resource_pool_item(
-            session,
-            source=src,
-            bank_id=bank_id,
-            resource_type=rtype,
-            text_data=block,
-            screenshots=[],
-            created_by_user_id=int(user.id),
-        )
-        created += 1
+        if src == "ALL":
+            if not bank_id_fb or not bank_id_tg:
+                await message.answer("Не удалось определить банки для TG/FB. Начните создание заново.")
+                return
+            await create_resource_pool_item(
+                session,
+                source="FB",
+                bank_id=bank_id_fb,
+                resource_type=rtype,
+                text_data=block,
+                screenshots=[],
+                created_by_user_id=int(user.id),
+            )
+            await create_resource_pool_item(
+                session,
+                source="TG",
+                bank_id=bank_id_tg,
+                resource_type=rtype,
+                text_data=block,
+                screenshots=[],
+                created_by_user_id=int(user.id),
+            )
+            created += 2
+        else:
+            await create_resource_pool_item(
+                session,
+                source=src,
+                bank_id=bank_id,
+                resource_type=rtype,
+                text_data=block,
+                screenshots=[],
+                created_by_user_id=int(user.id),
+            )
+            created += 1
 
     await message.answer(f"Добавлено массово: <b>{created}</b>", reply_markup=kb_wictory_bulk_next_actions())
 
@@ -831,8 +996,12 @@ async def wictory_edit_pick(cq: CallbackQuery, session: AsyncSession, state: FSM
     data = await state.get_data()
     if action == "bank":
         src = str(data.get("resource_source") or "TG")
-        banks = await _list_banks_for_source(session, src)
-        items = _bank_items_with_source(banks, src)
+        if src.upper() == "ALL":
+            banks = await _list_banks_for_source(session, "FB")
+            items = _bank_items_with_source(banks, "FB")
+        else:
+            banks = await _list_banks_for_source(session, src)
+            items = _bank_items_with_source(banks, src)
         await state.set_state(WictoryStates.pick_bank)
         await state.update_data(bank_edit_mode=True)
         await cq.answer()
@@ -888,15 +1057,41 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
     if resource_type not in {"link", "esim", "link_esim"}:
         await cq.answer("Некорректный тип ресурса", show_alert=True)
         return
-    await create_resource_pool_item(
-        session,
-        source=(data.get("resource_source") or getattr(user, "manager_source", None) or "TG"),
-        bank_id=int(data["bank_id"]),
-        resource_type=resource_type,
-        text_data=data.get("text_data"),
-        screenshots=list(data.get("screenshots") or []),
-        created_by_user_id=int(user.id),
-    )
+    src = str(data.get("resource_source") or getattr(user, "manager_source", None) or "TG").upper()
+    if src == "ALL":
+        bank_id_fb = int(data.get("bank_id_fb") or data.get("bank_id") or 0)
+        bank_id_tg = int(data.get("bank_id_tg") or 0)
+        if not bank_id_fb or not bank_id_tg:
+            await cq.answer("Не удалось определить банки для TG/FB", show_alert=True)
+            return
+        await create_resource_pool_item(
+            session,
+            source="FB",
+            bank_id=bank_id_fb,
+            resource_type=resource_type,
+            text_data=data.get("text_data"),
+            screenshots=list(data.get("screenshots") or []),
+            created_by_user_id=int(user.id),
+        )
+        await create_resource_pool_item(
+            session,
+            source="TG",
+            bank_id=bank_id_tg,
+            resource_type=resource_type,
+            text_data=data.get("text_data"),
+            screenshots=list(data.get("screenshots") or []),
+            created_by_user_id=int(user.id),
+        )
+    else:
+        await create_resource_pool_item(
+            session,
+            source=src,
+            bank_id=int(data["bank_id"]),
+            resource_type=resource_type,
+            text_data=data.get("text_data"),
+            screenshots=list(data.get("screenshots") or []),
+            created_by_user_id=int(user.id),
+        )
     await state.clear()
     await cq.answer()
     if cq.message:

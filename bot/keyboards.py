@@ -1103,8 +1103,9 @@ def kb_wictory_pick_source(*, back_cb: str = "wictory:home") -> InlineKeyboardMa
     b = InlineKeyboardBuilder()
     b.button(text="TG", callback_data="wictory:src:TG")
     b.button(text="FB", callback_data="wictory:src:FB")
+    b.button(text="Общее", callback_data="wictory:src:ALL")
     b.button(text="⬅️ Назад", callback_data=back_cb)
-    b.adjust(2, 1)
+    b.adjust(2, 1, 1)
     return b.as_markup()
 
 
@@ -1455,5 +1456,4 @@ def kb_bank_edit_for_source(bank_id: int, *, source: str) -> InlineKeyboardMarku
     b.button(text="Назад", callback_data=BankEditCb(action="back", bank_id=bank_id).pack())
     b.adjust(1)
     return b.as_markup()
-
 
