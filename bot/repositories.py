@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Iterable
 
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.models import (
@@ -597,6 +597,7 @@ async def create_resource_pool_item(
     *,
     source: str,
     bank_id: int,
+    tg_bank_id: int | None = None,
     resource_type: str,
     text_data: str | None,
     screenshots: list[str] | None,
@@ -606,6 +607,7 @@ async def create_resource_pool_item(
     item = ResourcePool(
         source=(source or "TG").upper(),
         bank_id=int(bank_id),
+        tg_bank_id=(int(tg_bank_id) if tg_bank_id else None),
         type=t,
         status=ResourceStatus.FREE,
         text_data=text_data,
@@ -693,13 +695,27 @@ async def count_dm_active_pool_items(session: AsyncSession, *, dm_user_id: int) 
 
 
 async def count_dm_active_pool_items_for_bank(session: AsyncSession, *, dm_user_id: int, bank_id: int) -> int:
-    res = await session.execute(
-        select(func.count(ResourcePool.id)).where(
+    dm = await get_user_by_id(session, int(dm_user_id))
+    source = (getattr(dm, "manager_source", None) or "TG").upper() if dm else "TG"
+    if source == "TG":
+        cond = and_(
             ResourcePool.assigned_to_user_id == int(dm_user_id),
             ResourcePool.status == ResourceStatus.ASSIGNED,
-            ResourcePool.bank_id == int(bank_id),
+            or_(
+                and_(ResourcePool.source == "TG", ResourcePool.bank_id == int(bank_id)),
+                and_(ResourcePool.source == "ALL", ResourcePool.tg_bank_id == int(bank_id)),
+            ),
         )
-    )
+    else:
+        cond = and_(
+            ResourcePool.assigned_to_user_id == int(dm_user_id),
+            ResourcePool.status == ResourceStatus.ASSIGNED,
+            or_(
+                and_(ResourcePool.source == "FB", ResourcePool.bank_id == int(bank_id)),
+                and_(ResourcePool.source == "ALL", ResourcePool.bank_id == int(bank_id)),
+            ),
+        )
+    res = await session.execute(select(func.count(ResourcePool.id)).where(cond))
     return int(res.scalar() or 0)
 
 
@@ -729,15 +745,24 @@ async def get_pool_item(session: AsyncSession, item_id: int) -> ResourcePool | N
 
 
 async def list_free_pool_items_for_bank(session: AsyncSession, *, bank_id: int, source: str) -> list[ResourcePool]:
-    res = await session.execute(
-        select(ResourcePool)
-        .where(
-            ResourcePool.bank_id == int(bank_id),
-            ResourcePool.source == source.upper(),
+    src = (source or "TG").upper()
+    if src == "TG":
+        cond = and_(
             ResourcePool.status == ResourceStatus.FREE,
+            or_(
+                and_(ResourcePool.source == "TG", ResourcePool.bank_id == int(bank_id)),
+                and_(ResourcePool.source == "ALL", ResourcePool.tg_bank_id == int(bank_id)),
+            ),
         )
-        .order_by(ResourcePool.id.asc())
-    )
+    else:
+        cond = and_(
+            ResourcePool.status == ResourceStatus.FREE,
+            or_(
+                and_(ResourcePool.source == "FB", ResourcePool.bank_id == int(bank_id)),
+                and_(ResourcePool.source == "ALL", ResourcePool.bank_id == int(bank_id)),
+            ),
+        )
+    res = await session.execute(select(ResourcePool).where(cond).order_by(ResourcePool.id.asc()))
     return list(res.scalars().all())
 
 
@@ -746,13 +771,48 @@ async def count_free_pool_items_by_bank(session: AsyncSession, *, source: str) -
     Returns a list of (bank_id, free_count) for the given source.
     Counts only items with status=FREE.
     """
-    res = await session.execute(
-        select(ResourcePool.bank_id, func.count(ResourcePool.id))
-        .where(ResourcePool.source == source.upper(), ResourcePool.status == ResourceStatus.FREE)
-        .group_by(ResourcePool.bank_id)
-        .order_by(ResourcePool.bank_id.asc())
-    )
-    return [(int(row[0]), int(row[1])) for row in res.all()]
+    src = (source or "TG").upper()
+    by_bank: dict[int, int] = {}
+    if src == "TG":
+        res_tg = await session.execute(
+            select(ResourcePool.bank_id, func.count(ResourcePool.id))
+            .where(ResourcePool.source == "TG", ResourcePool.status == ResourceStatus.FREE)
+            .group_by(ResourcePool.bank_id)
+        )
+        for bid, cnt in res_tg.all():
+            by_bank[int(bid)] = by_bank.get(int(bid), 0) + int(cnt or 0)
+
+        res_all = await session.execute(
+            select(ResourcePool.tg_bank_id, func.count(ResourcePool.id))
+            .where(
+                ResourcePool.source == "ALL",
+                ResourcePool.status == ResourceStatus.FREE,
+                ResourcePool.tg_bank_id.is_not(None),
+            )
+            .group_by(ResourcePool.tg_bank_id)
+        )
+        for bid, cnt in res_all.all():
+            if bid is None:
+                continue
+            by_bank[int(bid)] = by_bank.get(int(bid), 0) + int(cnt or 0)
+    else:
+        res_fb = await session.execute(
+            select(ResourcePool.bank_id, func.count(ResourcePool.id))
+            .where(ResourcePool.source == "FB", ResourcePool.status == ResourceStatus.FREE)
+            .group_by(ResourcePool.bank_id)
+        )
+        for bid, cnt in res_fb.all():
+            by_bank[int(bid)] = by_bank.get(int(bid), 0) + int(cnt or 0)
+
+        res_all = await session.execute(
+            select(ResourcePool.bank_id, func.count(ResourcePool.id))
+            .where(ResourcePool.source == "ALL", ResourcePool.status == ResourceStatus.FREE)
+            .group_by(ResourcePool.bank_id)
+        )
+        for bid, cnt in res_all.all():
+            by_bank[int(bid)] = by_bank.get(int(bid), 0) + int(cnt or 0)
+
+    return sorted([(bid, cnt) for bid, cnt in by_bank.items()], key=lambda x: x[0])
 
 
 async def assign_pool_item_to_dm(session: AsyncSession, *, item_id: int, dm_user_id: int) -> ResourcePool | None:

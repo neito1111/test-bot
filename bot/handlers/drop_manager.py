@@ -706,9 +706,24 @@ async def _list_dm_active_items_for_form_bank(*, session: AsyncSession, user: Us
     return [
         x
         for x in active_items
-        if int(getattr(x, "bank_id", 0) or 0) == int(bank_obj.id)
-        and str(getattr(x, "source", "") or "").upper() == source
+        if int(_pool_item_effective_bank_id_for_source(x, source) or 0) == int(bank_obj.id)
+        and str(getattr(x, "source", "") or "").upper() in {source, "ALL"}
     ]
+
+
+def _pool_item_effective_bank_id_for_source(item: Any, source: str | None) -> int | None:
+    src = (source or "TG").upper()
+    item_src = str(getattr(item, "source", "") or "").upper()
+    if item_src == "ALL" and src == "TG":
+        return int(getattr(item, "tg_bank_id", 0) or 0) or None
+    return int(getattr(item, "bank_id", 0) or 0) or None
+
+
+async def _pool_item_effective_bank_for_source(session: AsyncSession, item: Any, source: str | None):
+    bid = _pool_item_effective_bank_id_for_source(item, source)
+    if not bid:
+        return None
+    return await get_bank(session, int(bid))
 
 
 def _attach_item_button_label(item: Any) -> str:
@@ -752,7 +767,8 @@ async def _attach_selected_item_and_show_result(
         return
 
     type_val = str(getattr(getattr(used, "type", None), "value", "") or "").lower()
-    bank = await get_bank(session, int(used.bank_id))
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    bank = await _pool_item_effective_bank_for_source(session, used, source)
     history_chain = str(getattr(used, "usage_history", "") or "").strip() or "—"
     data_lines = _pool_data_lines(type_val=type_val, text_data=getattr(used, "text_data", None))
     txt = (
@@ -5781,7 +5797,8 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
     if not assigned:
         await cq.answer("Запись уже занята", show_alert=True)
         return
-    bank = await get_bank(session, int(assigned.bank_id))
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    bank = await _pool_item_effective_bank_for_source(session, assigned, source)
     history_chain = str(getattr(assigned, "usage_history", "") or "").strip() or "—"
     txt = (
         f"✅ Взято в работу\n\n"
@@ -5828,9 +5845,10 @@ async def dm_resource_active(cq: CallbackQuery, session: AsyncSession) -> None:
     if not user or user.role != UserRole.DROP_MANAGER:
         return
     items = await list_dm_active_pool_items(session, dm_user_id=int(user.id))
+    source = (getattr(user, "manager_source", None) or "TG").upper()
     packed: list[tuple[int, str]] = []
     for it in items:
-        bank = await get_bank(session, int(it.bank_id))
+        bank = await _pool_item_effective_bank_for_source(session, it, source)
         packed.append((int(it.id), f"{_resource_ident(int(it.id))} | {bank.name if bank else '—'} | {_pool_type_ru(getattr(it.type, 'value', ''))}"))
     await cq.answer()
     if cq.message:
@@ -5852,7 +5870,8 @@ async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> N
     if not it or int(it.assigned_to_user_id or 0) != int(user.id):
         await cq.answer("Кейс не найден", show_alert=True)
         return
-    bank = await get_bank(session, int(it.bank_id))
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    bank = await _pool_item_effective_bank_for_source(session, it, source)
     history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     type_val = str(getattr(it.type, 'value', '') or '').lower()
     data_lines: list[str] = []
@@ -6050,7 +6069,8 @@ async def dm_resource_attach_start(cq: CallbackQuery, session: AsyncSession) -> 
     if not it or int(it.assigned_to_user_id or 0) != int(user.id) or str(getattr(it.status, 'value', '')) != 'assigned':
         await cq.answer("Кейс не найден", show_alert=True)
         return
-    bank = await get_bank(session, int(it.bank_id))
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    bank = await _pool_item_effective_bank_for_source(session, it, source)
     bank_name = str(getattr(bank, "name", "") or "").strip().lower()
     created_from, created_to = _period_to_range("today")
     all_forms = await list_user_forms_in_range(session, user_id=int(user.id), created_from=created_from, created_to=created_to)
@@ -6098,7 +6118,8 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
     if await form_has_linked_pool_item(session, form_id=form_id):
         # stale list protection: silently refresh available forms instead of showing an error
         created_from, created_to = _period_to_range("today")
-        bank = await get_bank(session, int(item.bank_id))
+        source = (getattr(user, "manager_source", None) or "TG").upper()
+        bank = await _pool_item_effective_bank_for_source(session, item, source)
         bank_name = str(getattr(bank, "name", "") or "").strip().lower()
         all_forms = await list_user_forms_in_range(session, user_id=int(user.id), created_from=created_from, created_to=created_to)
         forms = [
@@ -6119,7 +6140,8 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
     if not item:
         await cq.answer("Ресурс не найден", show_alert=True)
         return
-    bank = await get_bank(session, int(item.bank_id))
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    bank = await _pool_item_effective_bank_for_source(session, item, source)
     item_bank_name = str(getattr(bank, "name", "") or "").strip().lower()
     if str(form.bank_name or "").strip().lower() != item_bank_name:
         await cq.answer("Ресурс можно подвязать только к анкете того же банка", show_alert=True)
@@ -6168,9 +6190,10 @@ async def dm_resource_used(cq: CallbackQuery, session: AsyncSession) -> None:
     if not user or user.role != UserRole.DROP_MANAGER:
         return
     items = await list_dm_used_pool_items(session, dm_user_id=int(user.id), limit=100)
+    source = (getattr(user, "manager_source", None) or "TG").upper()
     packed: list[tuple[int, str]] = []
     for it in items:
-        bank = await get_bank(session, int(it.bank_id))
+        bank = await _pool_item_effective_bank_for_source(session, it, source)
         form_suffix = f" → анкета #{int(it.used_with_form_id)}" if getattr(it, "used_with_form_id", None) else ""
         packed.append((int(it.id), f"{_resource_ident(int(it.id))} | {bank.name if bank else '—'} | {_pool_type_ru(getattr(it.type, 'value', ''))}{form_suffix}"))
     await cq.answer()
@@ -6197,7 +6220,8 @@ async def dm_resource_used_open(cq: CallbackQuery, session: AsyncSession) -> Non
     if not form or int(form.manager_id or 0) != int(user.id):
         await cq.answer("Нет доступа", show_alert=True)
         return
-    bank = await get_bank(session, int(it.bank_id))
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    bank = await _pool_item_effective_bank_for_source(session, it, source)
     history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     type_val = str(getattr(it.type, 'value', '') or '').lower()
     data_lines: list[str] = []

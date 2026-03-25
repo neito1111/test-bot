@@ -214,6 +214,7 @@ class ResourcePool(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(8), index=True)
     bank_id: Mapped[int] = mapped_column(ForeignKey("bank_conditions.id"), index=True)
+    tg_bank_id: Mapped[int | None] = mapped_column(ForeignKey("bank_conditions.id"), nullable=True, index=True)
     type: Mapped[ResourceType] = mapped_column(Enum(ResourceType), index=True)
     status: Mapped[ResourceStatus] = mapped_column(Enum(ResourceStatus), default=ResourceStatus.FREE, index=True)
 

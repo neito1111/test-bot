@@ -175,6 +175,9 @@ async def _init_db(engine: AsyncEngine) -> None:
             cols = {row[1] for row in res.fetchall()}
             if "usage_history" not in cols:
                 await conn.execute(text("ALTER TABLE resource_pool ADD COLUMN usage_history TEXT"))
+            if "tg_bank_id" not in cols:
+                await conn.execute(text("ALTER TABLE resource_pool ADD COLUMN tg_bank_id INTEGER"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_resource_pool_tg_bank_id ON resource_pool (tg_bank_id)"))
         except Exception:
             pass
 

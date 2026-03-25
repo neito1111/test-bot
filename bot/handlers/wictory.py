@@ -631,26 +631,18 @@ async def wictory_upload_screenshot(message: Message, session: AsyncSession, sta
             if not bank_id_fb or not bank_id_tg:
                 await message.answer("Не удалось определить банки для TG/FB. Начните создание заново.")
                 return
-            item_fb = await create_resource_pool_item(
+            item = await create_resource_pool_item(
                 session,
-                source="FB",
+                source="ALL",
                 bank_id=bank_id_fb,
-                resource_type=rtype,
-                text_data=text_data,
-                screenshots=[str(new_item)],
-                created_by_user_id=int(user.id),
-            )
-            item_tg = await create_resource_pool_item(
-                session,
-                source="TG",
-                bank_id=bank_id_tg,
+                tg_bank_id=bank_id_tg,
                 resource_type=rtype,
                 text_data=text_data,
                 screenshots=[str(new_item)],
                 created_by_user_id=int(user.id),
             )
             await message.answer(
-                f"Добавлено: <code>{_resource_ident(int(item_fb.id))}</code>, <code>{_resource_ident(int(item_tg.id))}</code>",
+                f"Добавлено: <code>{_resource_ident(int(item.id))}</code>",
                 reply_markup=kb_wictory_bulk_next_actions(),
             )
         else:
@@ -885,23 +877,15 @@ async def wictory_enter_bulk(message: Message, session: AsyncSession, state: FSM
                 return
             await create_resource_pool_item(
                 session,
-                source="FB",
+                source="ALL",
                 bank_id=bank_id_fb,
+                tg_bank_id=bank_id_tg,
                 resource_type=rtype,
                 text_data=block,
                 screenshots=[],
                 created_by_user_id=int(user.id),
             )
-            await create_resource_pool_item(
-                session,
-                source="TG",
-                bank_id=bank_id_tg,
-                resource_type=rtype,
-                text_data=block,
-                screenshots=[],
-                created_by_user_id=int(user.id),
-            )
-            created += 2
+            created += 1
         else:
             await create_resource_pool_item(
                 session,
@@ -1066,17 +1050,9 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
             return
         await create_resource_pool_item(
             session,
-            source="FB",
+            source="ALL",
             bank_id=bank_id_fb,
-            resource_type=resource_type,
-            text_data=data.get("text_data"),
-            screenshots=list(data.get("screenshots") or []),
-            created_by_user_id=int(user.id),
-        )
-        await create_resource_pool_item(
-            session,
-            source="TG",
-            bank_id=bank_id_tg,
+            tg_bank_id=bank_id_tg,
             resource_type=resource_type,
             text_data=data.get("text_data"),
             screenshots=list(data.get("screenshots") or []),
