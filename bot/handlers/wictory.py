@@ -254,6 +254,16 @@ async def _pool_item_is_wictory_created(session: AsyncSession, it) -> bool:
         return False
 
 
+async def _wictory_bank_label(session: AsyncSession, it) -> str:
+    src = str(getattr(it, "source", "") or "").upper()
+    bank_fb = await get_bank(session, int(getattr(it, "bank_id", 0) or 0))
+    if src == "ALL":
+        tg_bid = int(getattr(it, "tg_bank_id", 0) or 0)
+        bank_tg = await get_bank(session, tg_bid) if tg_bid else None
+        return f"FB: {bank_fb.name if bank_fb else '—'} / TG: {bank_tg.name if bank_tg else '—'}"
+    return bank_fb.name if bank_fb else "—"
+
+
 @router.callback_query(F.data == "wictory:home")
 async def wictory_home(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     user = await _wictory_guard(cq, session)
@@ -1041,6 +1051,7 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
     if resource_type not in {"link", "esim", "link_esim"}:
         await cq.answer("Некорректный тип ресурса", show_alert=True)
         return
+    created_item = None
     src = str(data.get("resource_source") or getattr(user, "manager_source", None) or "TG").upper()
     if src == "ALL":
         bank_id_fb = int(data.get("bank_id_fb") or data.get("bank_id") or 0)
@@ -1048,7 +1059,7 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
         if not bank_id_fb or not bank_id_tg:
             await cq.answer("Не удалось определить банки для TG/FB", show_alert=True)
             return
-        await create_resource_pool_item(
+        created_item = await create_resource_pool_item(
             session,
             source="ALL",
             bank_id=bank_id_fb,
@@ -1059,7 +1070,7 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
             created_by_user_id=int(user.id),
         )
     else:
-        await create_resource_pool_item(
+        created_item = await create_resource_pool_item(
             session,
             source=src,
             bank_id=int(data["bank_id"]),
@@ -1071,6 +1082,13 @@ async def wictory_confirm(cq: CallbackQuery, session: AsyncSession, state: FSMCo
     await state.clear()
     await cq.answer()
     if cq.message:
+        if created_item:
+            bank_label = await _wictory_bank_label(session, created_item)
+            await cq.message.answer(
+                f"✅ Добавлено: <code>{_resource_ident(int(created_item.id))}</code>\n"
+                f"Источник: <b>{src}</b>\n"
+                f"Банк: <b>{bank_label}</b>"
+            )
         await cq.message.answer("Меню <b>WICTORY</b>", reply_markup=kb_wictory_main_inline())
 
 
@@ -1188,12 +1206,12 @@ async def wictory_items_list(cq: CallbackQuery, session: AsyncSession) -> None:
     items = await list_wictory_pool_items(session, wictory_user_id=int(user.id), limit=100)
     packed: list[tuple[int, str]] = []
     for it in items:
-        bank = await get_bank(session, int(it.bank_id))
+        bank_label = await _wictory_bank_label(session, it)
         st = str(getattr(it.status, 'value', '—'))
         icon = _status_icon(st)
         packed.append((
             int(it.id),
-            f"{icon} {_resource_ident(int(it.id))} | {it.source} | {bank.name if bank else '—'} | {getattr(it.type, 'value', '—')} | {st.upper()}",
+            f"{icon} {_resource_ident(int(it.id))} | {it.source} | {bank_label} | {getattr(it.type, 'value', '—')} | {st.upper()}",
         ))
     await cq.answer()
     if cq.message:
@@ -1247,7 +1265,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
     if not it or not await _pool_item_is_wictory_created(session, it):
         await cq.answer("Запись не найдена", show_alert=True)
         return
-    bank = await get_bank(session, int(it.bank_id))
+    bank_label = await _wictory_bank_label(session, it)
     history_chain = str(getattr(it, "usage_history", "") or "").strip() or "—"
     type_value = str(getattr(it.type, 'value', '—') or '—')
     extra_lines: list[str] = []
@@ -1263,7 +1281,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
         f"<b>Запись #{int(it.id)}</b>\n"
         f"Код ресурса: <code>{_resource_ident(int(it.id))}</code>\n"
         f"Источник: <b>{it.source}</b>\n"
-        f"Банк: <b>{bank.name if bank else '—'}</b>\n"
+        f"Банк: <b>{bank_label}</b>\n"
         f"Тип: <b>{type_value}</b>\n"
         f"Статус: <b>{getattr(it.status, 'value', '—')}</b>\n"
         f"История пользования: <code>{history_chain}</code>\n"
