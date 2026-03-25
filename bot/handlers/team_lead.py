@@ -1010,12 +1010,15 @@ async def bank_create_limit(message: Message, session: AsyncSession, state: FSMC
 
     existing = await get_bank_by_name(session, name)
     if existing:
-        await state.clear()
-        await message.answer(f"⚠️ Банк <b>{existing.name}</b> уже существует.")
         src = await _get_team_lead_source(session, message.from_user.id)
-        banks = await _list_banks_for_tl_source(session, src)
-        items = _tl_bank_items_with_source(banks, src)
-        await message.answer("Выберите банк:", reply_markup=kb_banks_list(items))
+        edit_field = "instructions_fb" if src == TeamLeadSource.FB else "instructions_tg"
+        await state.clear()
+        await state.update_data(bank_id=existing.id, return_to="banks_list", edit_field=edit_field)
+        await state.set_state(TeamLeadStates.bank_instructions)
+        await message.answer(
+            f"ℹ️ Банк <b>{existing.name}</b> уже есть. Обновим условия для источника <b>{str(src).split('.')[-1]}</b>."
+        )
+        await message.answer("Отправьте текст условий (можно несколько строк):", reply_markup=kb_back())
         return
 
     edit_field = data.get("edit_field")
