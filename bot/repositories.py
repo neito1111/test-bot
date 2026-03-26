@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -817,7 +817,7 @@ async def count_free_pool_items_by_bank(session: AsyncSession, *, source: str) -
 
 
 async def assign_pool_item_to_dm(session: AsyncSession, *, item_id: int, dm_user_id: int) -> ResourcePool | None:
-    assigned_at = datetime.now(UTC)
+    assigned_at = datetime.now(timezone.utc)
     result = await session.execute(
         update(ResourcePool)
         .where(
