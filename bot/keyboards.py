@@ -1065,7 +1065,31 @@ def kb_dm_resource_attach_forms(item_id: int, forms: list) -> InlineKeyboardMark
     b = InlineKeyboardBuilder()
     for f in forms[:40]:
         b.button(text=f"#{int(f.id)} {(getattr(f, 'bank_name', None) or '—')}", callback_data=f"dm:resource_attach_pick:{int(item_id)}:{int(f.id)}")
+    b.button(text="📅 Фильтр", callback_data=f"dm:resource_attach_filter:{int(item_id)}")
     b.button(text="⬅️ Назад", callback_data=f"dm:resource_active_open:{int(item_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_dm_resource_attach_filter_menu(*, item_id: int, current: str | None) -> InlineKeyboardMarkup:
+    cur = (current or "today").lower()
+    b = InlineKeyboardBuilder()
+    items = [
+        ("Сегодня", "today"),
+        ("Вчера", "yesterday"),
+        ("Текущая неделя", "week"),
+        ("Последние 7 дней", "last7"),
+        ("Текущий месяц", "month"),
+        ("Предыдущий месяц", "prev_month"),
+        ("Последние 30 дней", "last30"),
+        ("Текущий год", "year"),
+        ("За все время", "all"),
+    ]
+    for title, key in items:
+        prefix = "✅ " if key == cur else ""
+        b.button(text=f"{prefix}{title}", callback_data=f"dm:resource_attach_filter_set:{int(item_id)}:{key}")
+    b.button(text="Интервал дат", callback_data=f"dm:resource_attach_filter_custom:{int(item_id)}")
+    b.button(text="⬅️ Назад", callback_data=f"dm:resource_attach:{int(item_id)}")
     b.adjust(1)
     return b.as_markup()
 
@@ -1324,11 +1348,30 @@ def kb_wictory_item_pick_source(item_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def kb_wictory_item_pick_bank_source(item_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="Банк TG", callback_data=f"wictory:item:edit_bank_source:{int(item_id)}:TG")
+    b.button(text="Банк FB", callback_data=f"wictory:item:edit_bank_source:{int(item_id)}:FB")
+    b.button(text="⬅️ Назад", callback_data=f"wictory:item:open:{int(item_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
 def kb_wictory_item_banks(items: list[tuple[int, str]], *, item_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for bank_id, name in items[:50]:
         b.button(text=name, callback_data=f"wictory:item:set_bank:{int(item_id)}:{int(bank_id)}")
     b.button(text="⬅️ Назад", callback_data=f"wictory:item:open:{int(item_id)}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wictory_item_banks_for_source(items: list[tuple[int, str]], *, item_id: int, bank_source: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    src = (bank_source or "TG").upper()
+    for bank_id, name in items[:50]:
+        b.button(text=name, callback_data=f"wictory:item:set_bank_source:{int(item_id)}:{src}:{int(bank_id)}")
+    b.button(text="⬅️ Назад", callback_data=f"wictory:item:edit_bank:{int(item_id)}")
     b.adjust(1)
     return b.as_markup()
 
@@ -1456,4 +1499,3 @@ def kb_bank_edit_for_source(bank_id: int, *, source: str) -> InlineKeyboardMarku
     b.button(text="Назад", callback_data=BankEditCb(action="back", bank_id=bank_id).pack())
     b.adjust(1)
     return b.as_markup()
-

@@ -85,6 +85,7 @@ class WictoryStates(StatesGroup):
 
 class DropManagerResourceStates(StatesGroup):
     invalid_comment = State()
+    attach_forms_filter_range = State()
 
 
 class DeveloperStates(StatesGroup):

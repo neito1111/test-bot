@@ -19,8 +19,10 @@ from bot.keyboards import (
     kb_wictory_invalid_list,
     kb_wictory_item_actions,
     kb_wictory_item_banks,
+    kb_wictory_item_banks_for_source,
     kb_wictory_item_edit_back_cancel,
     kb_wictory_item_media_manage,
+    kb_wictory_item_pick_bank_source,
     kb_wictory_item_pick_source,
     kb_wictory_items_list,
     kb_wictory_main_inline,
@@ -1472,7 +1474,10 @@ async def wictory_item_edit_source_start(cq: CallbackQuery, session: AsyncSessio
         return
     await cq.answer()
     if cq.message:
-        await _safe_edit_or_answer(cq, "Выберите новый источник:", reply_markup=kb_wictory_item_pick_source(item_id))
+        prompt = "Выберите новый источник:"
+        if str(getattr(it, "source", "") or "").upper() == "ALL":
+            prompt = "Выберите, в какой одиночный источник перевести запись:"
+        await _safe_edit_or_answer(cq, prompt, reply_markup=kb_wictory_item_pick_source(item_id))
 
 
 @router.callback_query(F.data.startswith("wictory:item:set_source:"))
@@ -1496,7 +1501,19 @@ async def wictory_item_set_source(cq: CallbackQuery, session: AsyncSession) -> N
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
         await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
         return
-    await wictory_update_item(session, item_id=item_id, wictory_user_id=int(user.id), source=src)
+    item_src = str(getattr(it, "source", "") or "").upper()
+    update_kwargs = {
+        "item_id": item_id,
+        "wictory_user_id": int(user.id),
+        "source": src,
+    }
+    if item_src == "ALL":
+        if src == "TG":
+            update_kwargs["bank_id"] = int(getattr(it, "tg_bank_id", 0) or getattr(it, "bank_id", 0))
+        else:
+            update_kwargs["bank_id"] = int(getattr(it, "bank_id", 0) or 0)
+        update_kwargs["clear_tg_bank_id"] = True
+    await wictory_update_item(session, **update_kwargs)
     await cq.answer("Источник обновлён")
     if cq.message:
         await _safe_edit_or_answer(cq, "Источник обновлён", reply_markup=kb_wictory_main_inline())
@@ -1515,11 +1532,53 @@ async def wictory_item_edit_bank_start(cq: CallbackQuery, session: AsyncSession)
     if getattr(it.status, "value", "") not in {"free", "invalid"}:
         await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
         return
+    src = str(getattr(it, "source", "") or "").upper()
+    if src == "ALL":
+        await cq.answer()
+        if cq.message:
+            await _safe_edit_or_answer(
+                cq,
+                "Выберите, для какого источника менять банк:",
+                reply_markup=kb_wictory_item_pick_bank_source(item_id),
+            )
+        return
     banks = await _list_banks_for_source(session, getattr(it, "source", None))
     items = _bank_items_with_source(banks, getattr(it, "source", None))
     await cq.answer()
     if cq.message:
         await _safe_edit_or_answer(cq, "Выберите новый банк:", reply_markup=kb_wictory_item_banks(items, item_id=item_id))
+
+
+@router.callback_query(F.data.startswith("wictory:item:edit_bank_source:"))
+async def wictory_item_edit_bank_source(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) < 5:
+        await cq.answer("Некорректные данные", show_alert=True)
+        return
+    item_id = int(parts[3])
+    bank_source = (parts[4] or "").upper()
+    if bank_source not in {"TG", "FB"}:
+        await cq.answer("Некорректный источник", show_alert=True)
+        return
+    it = await get_pool_item(session, item_id)
+    if not it or not await _pool_item_is_wictory_created(session, it):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    banks = await _list_banks_for_source(session, bank_source)
+    items = _bank_items_with_source(banks, bank_source)
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_or_answer(
+            cq,
+            f"Выберите новый банк для {bank_source}:",
+            reply_markup=kb_wictory_item_banks_for_source(items, item_id=item_id, bank_source=bank_source),
+        )
 
 
 @router.callback_query(F.data.startswith("wictory:item:set_bank:"))
@@ -1544,6 +1603,39 @@ async def wictory_item_set_bank(cq: CallbackQuery, session: AsyncSession) -> Non
     await cq.answer("Банк обновлён")
     if cq.message:
         await _safe_edit_or_answer(cq, "Банк обновлён", reply_markup=kb_wictory_main_inline())
+
+
+@router.callback_query(F.data.startswith("wictory:item:set_bank_source:"))
+async def wictory_item_set_bank_source(cq: CallbackQuery, session: AsyncSession) -> None:
+    user = await _wictory_guard(cq, session)
+    if not user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) < 6:
+        await cq.answer("Некорректные данные", show_alert=True)
+        return
+    item_id = int(parts[3])
+    bank_source = (parts[4] or "").upper()
+    bank_id = int(parts[5])
+    if bank_source not in {"TG", "FB"}:
+        await cq.answer("Некорректный источник", show_alert=True)
+        return
+    it = await get_pool_item(session, item_id)
+    if not it or not await _pool_item_is_wictory_created(session, it):
+        await cq.answer("Запись не найдена", show_alert=True)
+        return
+    if getattr(it.status, "value", "") not in {"free", "invalid"}:
+        await cq.answer("Редактирование доступно только для FREE/INVALID", show_alert=True)
+        return
+    update_kwargs = {"item_id": item_id, "wictory_user_id": int(user.id)}
+    if bank_source == "FB":
+        update_kwargs["bank_id"] = bank_id
+    else:
+        update_kwargs["tg_bank_id"] = bank_id
+    await wictory_update_item(session, **update_kwargs)
+    await cq.answer(f"Банк {bank_source} обновлён")
+    if cq.message:
+        await _safe_edit_or_answer(cq, f"Банк {bank_source} обновлён", reply_markup=kb_wictory_main_inline())
 
 
 @router.callback_query(F.data.startswith("wictory:item:delete:"))

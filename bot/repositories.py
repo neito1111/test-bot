@@ -967,6 +967,8 @@ async def wictory_update_item(
     screenshots: list[str] | None = None,
     source: str | None = None,
     bank_id: int | None = None,
+    tg_bank_id: int | None = None,
+    clear_tg_bank_id: bool = False,
 ) -> ResourcePool | None:
     item = await _get_wictory_pool_item(session, item_id=int(item_id))
     if not item:
@@ -979,6 +981,10 @@ async def wictory_update_item(
         item.source = str(source).upper()
     if bank_id is not None:
         item.bank_id = int(bank_id)
+    if clear_tg_bank_id:
+        item.tg_bank_id = None
+    elif tg_bank_id is not None:
+        item.tg_bank_id = int(tg_bank_id)
     return item
 
 

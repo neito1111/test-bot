@@ -9,6 +9,7 @@ from bot.keyboards import (
     kb_dm_post_payment_actions,
     kb_wictory_bulk_next_actions,
     kb_wictory_item_actions,
+    kb_wictory_item_pick_bank_source,
 )
 from bot.models import ResourcePool, ResourceStatus, ResourceType, User, UserRole
 from bot.repositories import list_invalid_pool_items_for_wictory, list_wictory_pool_items, wictory_delete_item, wictory_update_item
@@ -170,3 +171,51 @@ async def test_wictory_cannot_delete_used_resource(session) -> None:
     ok = await wictory_delete_item(session, item_id=int(used_item.id), wictory_user_id=int(w.id))
 
     assert ok is False
+
+
+def test_kb_wictory_item_pick_bank_source_buttons() -> None:
+    kb = kb_wictory_item_pick_bank_source(18)
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    callbacks = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "Банк TG" in labels
+    assert "Банк FB" in labels
+    assert "wictory:item:edit_bank_source:18:TG" in callbacks
+    assert "wictory:item:edit_bank_source:18:FB" in callbacks
+
+
+@pytest.mark.asyncio
+async def test_wictory_update_item_supports_all_bank_edit_and_safe_source_switch(session) -> None:
+    w = User(tg_id=2102, role=UserRole.WICTORY)
+    session.add(w)
+    await session.flush()
+
+    item = ResourcePool(
+        source="ALL",
+        bank_id=11,
+        tg_bank_id=22,
+        type=ResourceType.LINK,
+        status=ResourceStatus.FREE,
+        text_data="all",
+        screenshots=[],
+        created_by_user_id=int(w.id),
+    )
+    session.add(item)
+    await session.flush()
+
+    updated_tg = await wictory_update_item(session, item_id=int(item.id), wictory_user_id=int(w.id), tg_bank_id=33)
+    assert updated_tg is not None
+    assert int(updated_tg.bank_id) == 11
+    assert int(updated_tg.tg_bank_id or 0) == 33
+
+    updated_src = await wictory_update_item(
+        session,
+        item_id=int(item.id),
+        wictory_user_id=int(w.id),
+        source="TG",
+        bank_id=33,
+        clear_tg_bank_id=True,
+    )
+    assert updated_src is not None
+    assert updated_src.source == "TG"
+    assert int(updated_src.bank_id) == 33
+    assert updated_src.tg_bank_id is None

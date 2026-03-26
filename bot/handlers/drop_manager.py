@@ -47,6 +47,7 @@ from bot.keyboards import (
     kb_dm_resource_active_list,
     kb_dm_resource_active_actions,
     kb_dm_resource_attach_forms,
+    kb_dm_resource_attach_filter_menu,
     kb_dm_resource_used_list,
     kb_dm_resource_used_actions,
     kb_dm_traffic_type_inline,
@@ -5666,12 +5667,131 @@ def _free_pool_counts_by_type(items: list) -> dict[str, int]:
     return out
 
 
+def _resource_attach_period_label(period: str | None) -> str:
+    return {
+        "today": "Сегодня",
+        "yesterday": "Вчера",
+        "week": "Текущая неделя",
+        "last7": "Последние 7 дней",
+        "month": "Текущий месяц",
+        "prev_month": "Предыдущий месяц",
+        "last30": "Последние 30 дней",
+        "year": "Текущий год",
+        "all": "За все время",
+        "custom": "Интервал дат",
+    }.get(str(period or "today").lower(), "Сегодня")
+
+
+async def _dm_resource_guard(
+    cq_or_msg: CallbackQuery | Message,
+    session: AsyncSession,
+    *,
+    require_shift: bool = True,
+) -> tuple[User | None, Shift | None]:
+    u = cq_or_msg.from_user
+    if not u:
+        return None, None
+    user = await get_user_by_tg_id(session, u.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        if isinstance(cq_or_msg, CallbackQuery):
+            await cq_or_msg.answer("Нет прав", show_alert=True)
+        return None, None
+    shift = await get_active_shift(session, int(user.id))
+    if require_shift and not shift:
+        if isinstance(cq_or_msg, CallbackQuery):
+            await cq_or_msg.answer("У вас нет активной смены", show_alert=True)
+            if cq_or_msg.message:
+                await _safe_edit_message(
+                    message=cq_or_msg.message,
+                    text="Сначала нажмите <b>Начать работу</b>.",
+                    reply_markup=kb_dm_main_inline(shift_active=False),
+                )
+        else:
+            await cq_or_msg.answer(
+                "Сначала нажмите <b>Начать работу</b>.",
+                reply_markup=kb_dm_main_inline(shift_active=False),
+            )
+        return None, None
+    return user, shift
+
+
+async def _load_resource_attach_forms(
+    *,
+    session: AsyncSession,
+    state: FSMContext,
+    user: User,
+    item: Any,
+) -> tuple[Any, str, list[Form]]:
+    data = await state.get_data()
+    period = str(data.get("resource_attach_period") or "today")
+    if period == "custom":
+        created_from = data.get("resource_attach_created_from")
+        created_to = data.get("resource_attach_created_to")
+    else:
+        created_from, created_to = _period_to_range(period)
+    source = (getattr(user, "manager_source", None) or "TG").upper()
+    bank = await _pool_item_effective_bank_for_source(session, item, source)
+    bank_name = str(getattr(bank, "name", "") or "").strip().lower()
+    all_forms = await list_user_forms_in_range(
+        session,
+        user_id=int(user.id),
+        created_from=created_from,
+        created_to=created_to,
+    )
+    forms = [
+        f for f in all_forms
+        if f.status == FormStatus.APPROVED and str(f.bank_name or "").strip().lower() == bank_name
+    ]
+    filtered_forms: list[Form] = []
+    for f in forms:
+        if not await form_has_linked_pool_item(session, form_id=int(f.id)):
+            filtered_forms.append(f)
+    return bank, period, filtered_forms
+
+
+async def _render_resource_attach_forms(
+    cq_or_msg: CallbackQuery | Message,
+    session: AsyncSession,
+    state: FSMContext,
+    *,
+    user: User,
+    item_id: int,
+) -> None:
+    await state.set_state(None)
+    item = await get_pool_item(session, int(item_id))
+    if not item or int(getattr(item, "assigned_to_user_id", 0) or 0) != int(user.id) or str(getattr(item.status, "value", "") or "") != "assigned":
+        if isinstance(cq_or_msg, CallbackQuery):
+            await cq_or_msg.answer("Кейс не найден", show_alert=True)
+        else:
+            await cq_or_msg.answer("Кейс не найден")
+        return
+
+    await state.update_data(resource_attach_item_id=int(item_id))
+    bank, period, filtered_forms = await _load_resource_attach_forms(session=session, state=state, user=user, item=item)
+    bank_label = str(getattr(bank, "name", "") or "—")
+    text = (
+        f"Ресурс <code>{_resource_ident(int(item_id))}</code> · <b>{bank_label}</b>\n"
+        f"Фильтр: <b>{_resource_attach_period_label(period)}</b>\n"
+        f"Найдено анкет: <b>{len(filtered_forms)}</b>"
+    )
+    if not filtered_forms:
+        text += "\n\nНет APPROVED анкет этого банка без подвязанного ресурса"
+    else:
+        text += "\n\nВыберите анкету:"
+
+    kb = kb_dm_resource_attach_forms(int(item_id), filtered_forms)
+    if isinstance(cq_or_msg, CallbackQuery):
+        await cq_or_msg.answer()
+        if cq_or_msg.message:
+            await _safe_edit_message(message=cq_or_msg.message, text=text, reply_markup=kb)
+        return
+    await cq_or_msg.answer(text, reply_markup=kb)
+
+
 @router.callback_query(F.data == "dm:resource_menu")
 async def dm_resource_menu(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     await cq.answer()
     if cq.message:
@@ -5685,10 +5805,8 @@ async def dm_resource_create_bank_stub(cq: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "dm:resource_banks")
 async def dm_resource_banks(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None))
     source = (getattr(user, "manager_source", None) or "TG")
@@ -5709,10 +5827,8 @@ async def dm_resource_banks(cq: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("dm:resource_bank:"))
 async def dm_resource_bank_open(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     bank_id = int((cq.data or "").split(":")[-1])
     bank = await get_bank(session, bank_id)
@@ -5741,10 +5857,8 @@ async def dm_resource_bank_open(cq: CallbackQuery, session: AsyncSession) -> Non
 
 @router.callback_query(F.data.startswith("dm:resource_take:"))
 async def dm_resource_take(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     bank_id = int((cq.data or "").split(":")[-1])
     active_cnt_bank = await count_dm_active_pool_items_for_bank(session, dm_user_id=int(user.id), bank_id=bank_id)
@@ -5765,10 +5879,8 @@ async def dm_resource_take(cq: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("dm:resource_take_type:"))
 async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     parts = (cq.data or "").split(":")
     if len(parts) != 4:
@@ -5839,10 +5951,8 @@ async def dm_resource_take_type(cq: CallbackQuery, session: AsyncSession) -> Non
 
 @router.callback_query(F.data == "dm:resource_active")
 async def dm_resource_active(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     items = await list_dm_active_pool_items(session, dm_user_id=int(user.id))
     source = (getattr(user, "manager_source", None) or "TG").upper()
@@ -5860,10 +5970,8 @@ async def dm_resource_active(cq: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("dm:resource_active_open:"))
 async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
@@ -5908,10 +6016,8 @@ async def dm_resource_active_open(cq: CallbackQuery, session: AsyncSession) -> N
 
 @router.callback_query(F.data.startswith("dm:resource_release:"))
 async def dm_resource_release(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     item_id = int((cq.data or "").split(":")[-1])
     ok = await release_pool_item(session, item_id=item_id, dm_user_id=int(user.id))
@@ -5922,11 +6028,8 @@ async def dm_resource_release(cq: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("dm:resource_invalid:"))
 async def dm_resource_invalid_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
-        await cq.answer("Нет прав", show_alert=True)
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)
@@ -5956,11 +6059,11 @@ async def dm_resource_invalid_cancel(cq: CallbackQuery, state: FSMContext) -> No
 
 @router.message(DropManagerResourceStates.invalid_comment, F.text)
 async def dm_resource_invalid_comment(message: Message, session: AsyncSession, state: FSMContext) -> None:
-    if not message.from_user:
+    user, shift = await _dm_resource_guard(message, session)
+    if not user:
         return
-    user = await get_user_by_tg_id(session, message.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
-        await message.answer("Нет прав")
+    if not shift:
+        await state.clear()
         return
 
     log.info("DM invalid comment received: tg_id=%s text_len=%s", getattr(user, "tg_id", None), len((message.text or "").strip()))
@@ -6057,45 +6160,132 @@ async def dm_resource_invalid_comment_non_text(message: Message, state: FSMConte
     )
 
 
-@router.callback_query(F.data.startswith("dm:resource_attach:"))
-async def dm_resource_attach_start(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
+@router.message(DropManagerResourceStates.attach_forms_filter_range, F.text)
+async def dm_resource_attach_filter_range_msg(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    if message.chat.type in ['group', 'supergroup']:
         return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(message, session)
+    if not user:
+        return
+
+    raw = (message.text or "").strip().replace(" ", "")
+    if "-" not in raw:
+        await message.answer("Неверный формат. Пример: <code>21.01.2026-31.01.2026</code>")
+        return
+    a, b = raw.split("-", 1)
+    try:
+        d1 = datetime.strptime(a, "%d.%m.%Y")
+        d2 = datetime.strptime(b, "%d.%m.%Y")
+    except ValueError:
+        await message.answer("Неверный формат. Пример: <code>21.01.2026-31.01.2026</code>")
+        return
+    if d2 < d1:
+        d1, d2 = d2, d1
+    created_from = datetime(d1.year, d1.month, d1.day)
+    created_to = datetime(d2.year, d2.month, d2.day) + timedelta(days=1)
+
+    data = await state.get_data()
+    item_id = int(data.get("resource_attach_item_id") or 0)
+    if item_id <= 0:
+        await state.clear()
+        await message.answer("Не удалось определить ресурс.", reply_markup=kb_dm_resource_menu())
+        return
+
+    await state.update_data(
+        resource_attach_period="custom",
+        resource_attach_created_from=created_from,
+        resource_attach_created_to=created_to,
+    )
+    await _render_resource_attach_forms(message, session, state, user=user, item_id=item_id)
+
+
+@router.callback_query(F.data.startswith("dm:resource_attach:"))
+async def dm_resource_attach_start(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     item_id = int((cq.data or "").split(":")[-1])
-    it = await get_pool_item(session, item_id)
-    if not it or int(it.assigned_to_user_id or 0) != int(user.id) or str(getattr(it.status, 'value', '')) != 'assigned':
-        await cq.answer("Кейс не найден", show_alert=True)
+    data = await state.get_data()
+    existing_item_id = int(data.get("resource_attach_item_id") or 0)
+    if existing_item_id != int(item_id):
+        await state.update_data(
+            resource_attach_item_id=int(item_id),
+            resource_attach_period="today",
+            resource_attach_created_from=None,
+            resource_attach_created_to=None,
+        )
+    elif not data.get("resource_attach_period"):
+        await state.update_data(resource_attach_period="today")
+    await _render_resource_attach_forms(cq, session, state, user=user, item_id=item_id)
+
+
+@router.callback_query(F.data.startswith("dm:resource_attach_filter:"))
+async def dm_resource_attach_filter_menu(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
-    source = (getattr(user, "manager_source", None) or "TG").upper()
-    bank = await _pool_item_effective_bank_for_source(session, it, source)
-    bank_name = str(getattr(bank, "name", "") or "").strip().lower()
-    created_from, created_to = _period_to_range("today")
-    all_forms = await list_user_forms_in_range(session, user_id=int(user.id), created_from=created_from, created_to=created_to)
-    forms = [
-        f for f in all_forms
-        if f.status == FormStatus.APPROVED and str(f.bank_name or "").strip().lower() == bank_name
-    ]
-    filtered_forms: list[Form] = []
-    for f in forms:
-        if not await form_has_linked_pool_item(session, form_id=int(f.id)):
-            filtered_forms.append(f)
+    parts = (cq.data or "").split(":")
+    if len(parts) < 4:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    item_id = int(parts[3])
+    data = await state.get_data()
+    current = str(data.get("resource_attach_period") or "today")
+    await state.update_data(resource_attach_item_id=item_id)
     await cq.answer()
     if cq.message:
-        if not filtered_forms:
-            await _safe_edit_message(message=cq.message, text="Нет APPROVED анкет этого банка без подвязанного ресурса", reply_markup=kb_dm_resource_active_actions(item_id))
-            return
-        await _safe_edit_message(message=cq.message, text="Выберите анкету:", reply_markup=kb_dm_resource_attach_forms(item_id, filtered_forms))
+        await _safe_edit_message(
+            message=cq.message,
+            text="📅 <b>Фильтр анкет для привязки</b>",
+            reply_markup=kb_dm_resource_attach_filter_menu(item_id=item_id, current=current),
+        )
+
+
+@router.callback_query(F.data.startswith("dm:resource_attach_filter_set:"))
+async def dm_resource_attach_filter_set(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) < 5:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    item_id = int(parts[3])
+    period = str(parts[4] or "today")
+    await state.update_data(
+        resource_attach_item_id=item_id,
+        resource_attach_period=period,
+        resource_attach_created_from=None,
+        resource_attach_created_to=None,
+    )
+    await _render_resource_attach_forms(cq, session, state, user=user, item_id=item_id)
+
+
+@router.callback_query(F.data.startswith("dm:resource_attach_filter_custom:"))
+async def dm_resource_attach_filter_custom(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) < 4:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    item_id = int(parts[3])
+    await state.update_data(resource_attach_item_id=item_id)
+    await state.set_state(DropManagerResourceStates.attach_forms_filter_range)
+    await cq.answer()
+    if cq.message:
+        await _safe_edit_message(
+            message=cq.message,
+            text="Введите интервал дат в формате: <code>DD.MM.YYYY-DD.MM.YYYY</code>",
+            reply_markup=None,
+        )
 
 
 @router.callback_query(F.data.startswith("dm:resource_attach_pick:"))
-async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     parts = (cq.data or "").split(":")
     if len(parts) != 4:
@@ -6116,26 +6306,7 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
         await cq.answer("Можно подвязывать только APPROVED анкеты", show_alert=True)
         return
     if await form_has_linked_pool_item(session, form_id=form_id):
-        # stale list protection: silently refresh available forms instead of showing an error
-        created_from, created_to = _period_to_range("today")
-        source = (getattr(user, "manager_source", None) or "TG").upper()
-        bank = await _pool_item_effective_bank_for_source(session, item, source)
-        bank_name = str(getattr(bank, "name", "") or "").strip().lower()
-        all_forms = await list_user_forms_in_range(session, user_id=int(user.id), created_from=created_from, created_to=created_to)
-        forms = [
-            f for f in all_forms
-            if f.status == FormStatus.APPROVED and str(f.bank_name or "").strip().lower() == bank_name
-        ]
-        filtered_forms: list[Form] = []
-        for f in forms:
-            if not await form_has_linked_pool_item(session, form_id=int(f.id)):
-                filtered_forms.append(f)
-        await cq.answer()
-        if cq.message:
-            if not filtered_forms:
-                await _safe_edit_message(message=cq.message, text="Нет APPROVED анкет этого банка без подвязанного ресурса", reply_markup=kb_dm_resource_active_actions(item_id))
-            else:
-                await _safe_edit_message(message=cq.message, text="Выберите анкету:", reply_markup=kb_dm_resource_attach_forms(item_id, filtered_forms))
+        await _render_resource_attach_forms(cq, session, state, user=user, item_id=item_id)
         return
     if not item:
         await cq.answer("Ресурс не найден", show_alert=True)
@@ -6151,6 +6322,12 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
     await cq.answer("Подтянуто")
     if not it:
         return
+    await state.update_data(
+        resource_attach_item_id=None,
+        resource_attach_period="today",
+        resource_attach_created_from=None,
+        resource_attach_created_to=None,
+    )
     wictory_owner = await get_user_by_id(session, int(it.created_by_user_id)) if it else None
     if wictory_owner and wictory_owner.role == UserRole.WICTORY:
         try:
@@ -6184,10 +6361,8 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession) -> N
 
 @router.callback_query(F.data == "dm:resource_used")
 async def dm_resource_used(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     items = await list_dm_used_pool_items(session, dm_user_id=int(user.id), limit=100)
     source = (getattr(user, "manager_source", None) or "TG").upper()
@@ -6206,10 +6381,8 @@ async def dm_resource_used(cq: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("dm:resource_used_open:"))
 async def dm_resource_used_open(cq: CallbackQuery, session: AsyncSession) -> None:
-    if not cq.from_user:
-        return
-    user = await get_user_by_tg_id(session, cq.from_user.id)
-    if not user or user.role != UserRole.DROP_MANAGER:
+    user, _ = await _dm_resource_guard(cq, session)
+    if not user:
         return
     item_id = int((cq.data or "").split(":")[-1])
     it = await get_pool_item(session, item_id)

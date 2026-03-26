@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from bot.keyboards import kb_dm_resource_type_pick
+from bot.keyboards import kb_dm_resource_attach_filter_menu, kb_dm_resource_attach_forms, kb_dm_resource_type_pick
 from bot.models import Form, FormStatus, ResourcePool, ResourceStatus, ResourceType, User, UserRole
 from bot.repositories import (
     assign_pool_item_to_dm,
@@ -158,3 +158,18 @@ def test_kb_dm_resource_type_pick_only_available() -> None:
     assert "Ссылка + Esim" in labels
     assert "Esim" not in labels
     assert "Ссылка" not in labels
+
+
+def test_kb_dm_resource_attach_forms_has_filter_button() -> None:
+    kb = kb_dm_resource_attach_forms(7, [])
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    assert "📅 Фильтр" in labels
+    assert "dm:resource_attach_filter:7" in callbacks
+
+
+def test_kb_dm_resource_attach_filter_menu_has_expected_callbacks() -> None:
+    kb = kb_dm_resource_attach_filter_menu(item_id=7, current="today")
+    callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+    assert "dm:resource_attach_filter_set:7:today" in callbacks
+    assert "dm:resource_attach_filter_custom:7" in callbacks
