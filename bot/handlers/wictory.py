@@ -1296,7 +1296,7 @@ async def wictory_item_open(cq: CallbackQuery, session: AsyncSession, state: FSM
     can_edit_link = can_edit_by_status and tval in {"link", "link_esim"}
     can_edit_comment = can_edit_by_status and tval in {"esim", "link_esim"}
     can_media = can_edit_by_status and getattr(it.type, "value", "") in {"esim", "link_esim"}
-    can_delete = st_val != "assigned"
+    can_delete = st_val in {"free", "invalid"}
     can_edit_meta = can_edit_by_status
     kb = kb_wictory_item_actions(
         item_id,

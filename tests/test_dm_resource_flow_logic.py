@@ -4,7 +4,14 @@ import pytest
 
 from bot.keyboards import kb_dm_resource_type_pick
 from bot.models import Form, FormStatus, ResourcePool, ResourceStatus, ResourceType, User, UserRole
-from bot.repositories import count_dm_active_pool_items_for_bank, count_free_pool_items_by_bank, form_has_linked_pool_item, list_dm_used_pool_items
+from bot.repositories import (
+    assign_pool_item_to_dm,
+    count_dm_active_pool_items_for_bank,
+    count_free_pool_items_by_bank,
+    form_has_linked_pool_item,
+    list_dm_used_pool_items,
+    mark_pool_item_used_with_form,
+)
 
 
 async def _mk_user(session, tg_id: int, role: UserRole = UserRole.DROP_MANAGER) -> User:
@@ -82,6 +89,48 @@ async def test_form_has_linked_pool_item_and_used_list(session) -> None:
 
     used = await list_dm_used_pool_items(session, dm_user_id=dm.id)
     assert [x.id for x in used] == [item.id]
+
+
+@pytest.mark.asyncio
+async def test_assign_pool_item_to_dm_allows_only_one_winner(session) -> None:
+    dm1 = await _mk_user(session, 1211)
+    dm2 = await _mk_user(session, 1212)
+    w = await _mk_user(session, 1213, role=UserRole.WICTORY)
+    item = await _mk_pool_item(session, bank_id=1, created_by_user_id=w.id, status=ResourceStatus.FREE)
+
+    first = await assign_pool_item_to_dm(session, item_id=item.id, dm_user_id=dm1.id)
+    second = await assign_pool_item_to_dm(session, item_id=item.id, dm_user_id=dm2.id)
+
+    assert first is not None
+    assert second is None
+    assert int(first.assigned_to_user_id or 0) == int(dm1.id)
+
+
+@pytest.mark.asyncio
+async def test_mark_pool_item_used_with_form_blocks_second_resource_for_same_form(session) -> None:
+    dm = await _mk_user(session, 1221)
+    w = await _mk_user(session, 1222, role=UserRole.WICTORY)
+    form = await _mk_form(session, manager_id=dm.id, bank_name="РњРѕРЅРѕ")
+    item1 = await _mk_pool_item(
+        session,
+        bank_id=1,
+        created_by_user_id=w.id,
+        status=ResourceStatus.ASSIGNED,
+        assigned_to_user_id=dm.id,
+    )
+    item2 = await _mk_pool_item(
+        session,
+        bank_id=1,
+        created_by_user_id=w.id,
+        status=ResourceStatus.ASSIGNED,
+        assigned_to_user_id=dm.id,
+    )
+
+    first = await mark_pool_item_used_with_form(session, item_id=item1.id, dm_user_id=dm.id, form_id=form.id)
+    second = await mark_pool_item_used_with_form(session, item_id=item2.id, dm_user_id=dm.id, form_id=form.id)
+
+    assert first is not None
+    assert second is None
 
 
 @pytest.mark.asyncio

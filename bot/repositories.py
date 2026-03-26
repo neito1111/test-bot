@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Iterable
 
 from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.models import (
@@ -816,12 +817,24 @@ async def count_free_pool_items_by_bank(session: AsyncSession, *, source: str) -
 
 
 async def assign_pool_item_to_dm(session: AsyncSession, *, item_id: int, dm_user_id: int) -> ResourcePool | None:
-    item = await get_pool_item(session, int(item_id))
-    if not item or item.status != ResourceStatus.FREE:
+    assigned_at = datetime.now(UTC)
+    result = await session.execute(
+        update(ResourcePool)
+        .where(
+            ResourcePool.id == int(item_id),
+            ResourcePool.status == ResourceStatus.FREE,
+        )
+        .values(
+            status=ResourceStatus.ASSIGNED,
+            assigned_to_user_id=int(dm_user_id),
+            assigned_at=assigned_at,
+        )
+    )
+    if int(result.rowcount or 0) != 1:
         return None
-    item.status = ResourceStatus.ASSIGNED
-    item.assigned_to_user_id = int(dm_user_id)
-    item.assigned_at = datetime.utcnow()
+    item = await get_pool_item(session, int(item_id))
+    if not item:
+        return None
 
     dm = await get_user_by_id(session, int(dm_user_id))
     dm_tag = str(getattr(dm, "manager_tag", "") or "").strip() or f"dm#{int(dm_user_id)}"
@@ -866,14 +879,28 @@ async def form_has_linked_pool_item(session: AsyncSession, *, form_id: int) -> b
 
 
 async def mark_pool_item_used_with_form(session: AsyncSession, *, item_id: int, dm_user_id: int, form_id: int) -> ResourcePool | None:
-    item = await get_pool_item(session, int(item_id))
-    if not item or item.status != ResourceStatus.ASSIGNED or int(item.assigned_to_user_id or 0) != int(dm_user_id):
+    used_item = aliased(ResourcePool)
+    result = await session.execute(
+        update(ResourcePool)
+        .where(
+            ResourcePool.id == int(item_id),
+            ResourcePool.status == ResourceStatus.ASSIGNED,
+            ResourcePool.assigned_to_user_id == int(dm_user_id),
+            ResourcePool.used_with_form_id.is_(None),
+            ~select(used_item.id)
+            .where(used_item.used_with_form_id == int(form_id))
+            .exists(),
+        )
+        .values(
+            status=ResourceStatus.USED,
+            used_with_form_id=int(form_id),
+            assigned_to_user_id=None,
+            assigned_at=None,
+        )
+    )
+    if int(result.rowcount or 0) != 1:
         return None
-    item.status = ResourceStatus.USED
-    item.used_with_form_id = int(form_id)
-    item.assigned_to_user_id = None
-    item.assigned_at = None
-    return item
+    return await get_pool_item(session, int(item_id))
 
 
 async def list_wictory_pool_items(session: AsyncSession, *, wictory_user_id: int, limit: int = 100) -> list[ResourcePool]:
@@ -959,7 +986,7 @@ async def wictory_delete_item(session: AsyncSession, *, item_id: int, wictory_us
     item = await _get_wictory_pool_item(session, item_id=int(item_id))
     if not item:
         return False
-    if item.status == ResourceStatus.ASSIGNED:
+    if item.status not in {ResourceStatus.FREE, ResourceStatus.INVALID}:
         return False
     await session.delete(item)
     return True

@@ -210,6 +210,9 @@ class ResourceStatus(str, enum.Enum):
 
 class ResourcePool(Base):
     __tablename__ = "resource_pool"
+    __table_args__ = (
+        UniqueConstraint("used_with_form_id", name="uq_resource_pool_used_with_form_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(8), index=True)

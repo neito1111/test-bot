@@ -11,7 +11,7 @@ from bot.keyboards import (
     kb_wictory_item_actions,
 )
 from bot.models import ResourcePool, ResourceStatus, ResourceType, User, UserRole
-from bot.repositories import list_invalid_pool_items_for_wictory, list_wictory_pool_items, wictory_update_item
+from bot.repositories import list_invalid_pool_items_for_wictory, list_wictory_pool_items, wictory_delete_item, wictory_update_item
 
 
 def test_split_link_comment_wictory_link_esim_payload() -> None:
@@ -146,3 +146,27 @@ async def test_wictory_lists_and_edits_shared_pool_across_all_wictory_users(sess
     assert updated.text_data == "new"
     not_updated = await wictory_update_item(session, item_id=int(it_dm_invalid.id), wictory_user_id=int(w1.id), text_data="x")
     assert not_updated is None
+
+
+@pytest.mark.asyncio
+async def test_wictory_cannot_delete_used_resource(session) -> None:
+    w = User(tg_id=2101, role=UserRole.WICTORY)
+    session.add(w)
+    await session.flush()
+
+    used_item = ResourcePool(
+        source="TG",
+        bank_id=1,
+        type=ResourceType.LINK,
+        status=ResourceStatus.USED,
+        text_data="used",
+        screenshots=[],
+        created_by_user_id=int(w.id),
+        used_with_form_id=99,
+    )
+    session.add(used_item)
+    await session.flush()
+
+    ok = await wictory_delete_item(session, item_id=int(used_item.id), wictory_user_id=int(w.id))
+
+    assert ok is False

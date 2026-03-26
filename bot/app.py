@@ -178,6 +178,13 @@ async def _init_db(engine: AsyncEngine) -> None:
             if "tg_bank_id" not in cols:
                 await conn.execute(text("ALTER TABLE resource_pool ADD COLUMN tg_bank_id INTEGER"))
                 await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_resource_pool_tg_bank_id ON resource_pool (tg_bank_id)"))
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_resource_pool_used_with_form_id "
+                    "ON resource_pool (used_with_form_id) "
+                    "WHERE used_with_form_id IS NOT NULL"
+                )
+            )
         except Exception:
             pass
 
