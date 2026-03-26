@@ -6335,7 +6335,6 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession, stat
                 f"✅ Ресурс подтянут\n"
                 f"ID ресурса: <code>{item_id}</code>\n"
                 f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
-        f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
                 f"Форма #{form_id} · {form.bank_name if form else '—'}"
             )
             shots = list(getattr(it, "screenshots", None) or [])
