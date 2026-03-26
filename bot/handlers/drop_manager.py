@@ -745,6 +745,55 @@ def _attach_item_button_label(item: Any) -> str:
     return f"{_resource_ident(item_id)} | {preview}"
 
 
+async def _notify_wictory_resource_attached(
+    *,
+    session: AsyncSession,
+    bot: Any,
+    form: Form | None,
+    item_id: int,
+    dm_user_id: int,
+) -> None:
+    try:
+        wictory_users = [u for u in (await list_users(session)) if u.role == UserRole.WICTORY]
+    except Exception:
+        wictory_users = []
+    if not wictory_users:
+        return
+
+    caption = (
+        "✅ Ресурс подтянут\n"
+        f"ID ресурса: <code>{int(item_id)}</code>\n"
+        f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
+        f"ID анкеты: <code>{int(getattr(form, 'id', 0) or 0)}</code>\n"
+        f"Название банка: <b>{html.escape(getattr(form, 'bank_name', None) or '—')}</b>\n"
+        f"ID дм: <code>{int(dm_user_id)}</code>"
+    )
+    sent_tg_ids: set[int] = set()
+    for wu in wictory_users:
+        try:
+            tg_id = int(getattr(wu, "tg_id", 0) or 0)
+        except Exception:
+            tg_id = 0
+        if tg_id <= 0 or tg_id in sent_tg_ids:
+            continue
+        try:
+            await bot.send_message(
+                tg_id,
+                caption,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            sent_tg_ids.add(tg_id)
+        except Exception as exc:
+            log.warning(
+                "Failed to send WICTORY attach notification: tg_id=%s item_id=%s dm_user_id=%s err=%s",
+                tg_id,
+                item_id,
+                dm_user_id,
+                exc,
+            )
+
+
 async def _attach_selected_item_and_show_result(
     *,
     cq: CallbackQuery,
@@ -797,6 +846,14 @@ async def _attach_selected_item_and_show_result(
             await cq.message.answer(txt, parse_mode="HTML")
     else:
         await cq.message.answer(txt, parse_mode="HTML")
+
+    await _notify_wictory_resource_attached(
+        session=session,
+        bot=cq.bot,
+        form=form,
+        item_id=int(used.id),
+        dm_user_id=int(user.id),
+    )
 
     raw_payload = str(getattr(used, "text_data", "") or "").strip()
     if raw_payload and _pool_type_has_link(type_val):
@@ -6328,38 +6385,13 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession, stat
         resource_attach_created_from=None,
         resource_attach_created_to=None,
     )
-    # Notify all WICTORY users about successful resource attach in a stable text format.
-    try:
-        wictory_users = [u for u in (await list_users(session)) if u.role == UserRole.WICTORY]
-    except Exception:
-        wictory_users = []
-    if wictory_users:
-        caption = (
-            "✅ Ресурс подтянут\n"
-            f"ID ресурса: <code>{item_id}</code>\n"
-            f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
-            f"ID анкеты: <code>{form_id}</code>\n"
-            f"Название банка: <b>{html.escape(form.bank_name or '—') if form else '—'}</b>\n"
-            f"ID дм: <code>{int(user.id)}</code>"
-        )
-        sent_tg_ids: set[int] = set()
-        for wu in wictory_users:
-            try:
-                tg_id = int(getattr(wu, "tg_id", 0) or 0)
-            except Exception:
-                tg_id = 0
-            if tg_id <= 0 or tg_id in sent_tg_ids:
-                continue
-            try:
-                await cq.bot.send_message(
-                    tg_id,
-                    caption,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                )
-                sent_tg_ids.add(tg_id)
-            except Exception as exc:
-                log.warning("Failed to send WICTORY attach notification: tg_id=%s item_id=%s err=%s", tg_id, item_id, exc)
+    await _notify_wictory_resource_attached(
+        session=session,
+        bot=cq.bot,
+        form=form,
+        item_id=int(item_id),
+        dm_user_id=int(user.id),
+    )
     if cq.message:
         await _safe_edit_message(message=cq.message, text=f"Ресурс <code>{_resource_ident(int(item_id))}</code> привязан к анкете <code>#{form_id}</code> и удален из активных", reply_markup=kb_dm_resource_menu())
 
