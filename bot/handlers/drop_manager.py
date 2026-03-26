@@ -1690,7 +1690,7 @@ async def dm_approved_attach_pick_cb(cq: CallbackQuery, session: AsyncSession) -
         return
 
     try:
-        _, _, _, form_id_s, item_id_s = (cq.data or "").split(":", 4)
+        _, _, form_id_s, item_id_s = (cq.data or "").split(":", 3)
         form_id = int(form_id_s)
         item_id = int(item_id_s)
     except Exception:

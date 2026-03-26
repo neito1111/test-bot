@@ -68,6 +68,12 @@ def test_kb_dm_approved_attach_item_pick_buttons() -> None:
     assert "dm:approved_attach_pick:12:102" in callbacks
 
 
+def test_kb_dm_approved_attach_item_pick_callback_shape_is_parseable() -> None:
+    kb = kb_dm_approved_attach_item_pick(12, [(101, "RID-101 | test")])
+    cb = next(b.callback_data for row in kb.inline_keyboard for b in row if b.text == "RID-101 | test")
+    assert cb.split(":", 3) == ["dm", "approved_attach_pick", "12", "101"]
+
+
 def test_kb_wictory_bulk_next_actions_buttons() -> None:
     kb = kb_wictory_bulk_next_actions()
     labels = [b.text for row in kb.inline_keyboard for b in row]
