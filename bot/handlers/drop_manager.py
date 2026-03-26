@@ -6328,32 +6328,38 @@ async def dm_resource_attach_pick(cq: CallbackQuery, session: AsyncSession, stat
         resource_attach_created_from=None,
         resource_attach_created_to=None,
     )
-    wictory_owner = await get_user_by_id(session, int(it.created_by_user_id)) if it else None
-    if wictory_owner and wictory_owner.role == UserRole.WICTORY:
-        try:
-            caption = (
-                f"✅ Ресурс подтянут\n"
-                f"ID ресурса: <code>{item_id}</code>\n"
-                f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
-                f"Форма #{form_id} · {form.bank_name if form else '—'}"
-            )
-            shots = list(getattr(it, "screenshots", None) or [])
-            if shots:
-                kind, fid = unpack_media_item(str(shots[0]))
-                if kind == "photo":
-                    await cq.bot.send_photo(int(wictory_owner.tg_id), fid, caption=caption, parse_mode="HTML")
-                elif kind == "video":
-                    await cq.bot.send_video(int(wictory_owner.tg_id), fid, caption=caption, parse_mode="HTML")
-                else:
-                    await cq.bot.send_document(int(wictory_owner.tg_id), fid, caption=caption, parse_mode="HTML")
-            else:
+    # Notify all WICTORY users about successful resource attach in a stable text format.
+    try:
+        wictory_users = [u for u in (await list_users(session)) if u.role == UserRole.WICTORY]
+    except Exception:
+        wictory_users = []
+    if wictory_users:
+        caption = (
+            "✅ Ресурс подтянут\n"
+            f"ID ресурса: <code>{item_id}</code>\n"
+            f"Код ресурса: <code>{_resource_ident(int(item_id))}</code>\n"
+            f"ID анкеты: <code>{form_id}</code>\n"
+            f"Название банка: <b>{html.escape(form.bank_name or '—') if form else '—'}</b>\n"
+            f"ID дм: <code>{int(user.id)}</code>"
+        )
+        sent_tg_ids: set[int] = set()
+        for wu in wictory_users:
+            try:
+                tg_id = int(getattr(wu, "tg_id", 0) or 0)
+            except Exception:
+                tg_id = 0
+            if tg_id <= 0 or tg_id in sent_tg_ids:
+                continue
+            try:
                 await cq.bot.send_message(
-                    int(wictory_owner.tg_id),
+                    tg_id,
                     caption,
+                    parse_mode="HTML",
                     disable_web_page_preview=True,
                 )
-        except Exception:
-            pass
+                sent_tg_ids.add(tg_id)
+            except Exception as exc:
+                log.warning("Failed to send WICTORY attach notification: tg_id=%s item_id=%s err=%s", tg_id, item_id, exc)
     if cq.message:
         await _safe_edit_message(message=cq.message, text=f"Ресурс <code>{_resource_ident(int(item_id))}</code> привязан к анкете <code>#{form_id}</code> и удален из активных", reply_markup=kb_dm_resource_menu())
 
