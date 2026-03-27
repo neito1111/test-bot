@@ -296,7 +296,16 @@ async def approve_form_if_pending(session: AsyncSession, *, form_id: int) -> boo
 
 
 async def get_bank_by_name(session: AsyncSession, name: str) -> BankCondition | None:
-    res = await session.execute(select(BankCondition).where(BankCondition.name == name))
+    needle = str(name or "").strip()
+    if not needle:
+        return None
+    # Compare normalized names so TG/FB TL can reuse one shared bank record
+    # even when the input differs only by case or extra spaces.
+    res = await session.execute(
+        select(BankCondition).where(
+            func.lower(func.trim(BankCondition.name)) == func.lower(func.trim(needle))
+        )
+    )
     return res.scalar_one_or_none()
 
 
